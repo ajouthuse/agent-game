@@ -5,6 +5,7 @@ Provides dataclasses for the key game entities:
 - BattleMech: A combat mech with stats and status tracking.
 - MechWarrior: A pilot with skills and an optional mech assignment.
 - Company: The player's mercenary company containing mechs and pilots.
+- Contract: A mercenary contract with mission details and payout terms.
 
 All models support serialization to/from dictionaries for save/load.
 """
@@ -38,6 +39,14 @@ class PilotStatus(Enum):
     ACTIVE = "Active"
     INJURED = "Injured"
     KIA = "KIA"
+
+
+class MissionType(Enum):
+    """Type of contract mission."""
+    GARRISON_DUTY = "Garrison Duty"
+    RAID = "Raid"
+    BASE_ASSAULT = "Base Assault"
+    RECON = "Recon"
 
 
 # ── BattleMech ────────────────────────────────────────────────────────────
@@ -207,4 +216,60 @@ class Company:
             contracts_completed=d.get("contracts_completed", 0),
             mechwarriors=[MechWarrior.from_dict(mw) for mw in d["mechwarriors"]],
             mechs=[BattleMech.from_dict(m) for m in d["mechs"]],
+        )
+
+
+# ── Contract ─────────────────────────────────────────────────────────────
+
+@dataclass
+class Contract:
+    """A mercenary contract available for selection.
+
+    Attributes:
+        employer: Name of the hiring faction.
+        mission_type: The type of mission (Garrison, Raid, etc.).
+        difficulty: Difficulty rating in skulls (1-5).
+        payout: Payment in C-Bills upon completion.
+        salvage_rights: Percentage of battlefield salvage the company keeps (0-100).
+        bonus_objective: Optional bonus objective description.
+        description: Flavor text describing the mission briefing.
+    """
+
+    employer: str
+    mission_type: MissionType
+    difficulty: int
+    payout: int
+    salvage_rights: int
+    bonus_objective: str
+    description: str
+
+    def skulls_display(self) -> str:
+        """Return a visual skull rating string like '[***--]'."""
+        filled = "*" * self.difficulty
+        empty = "-" * (5 - self.difficulty)
+        return f"[{filled}{empty}]"
+
+    def to_dict(self) -> dict:
+        """Serialize to a plain dictionary."""
+        return {
+            "employer": self.employer,
+            "mission_type": self.mission_type.value,
+            "difficulty": self.difficulty,
+            "payout": self.payout,
+            "salvage_rights": self.salvage_rights,
+            "bonus_objective": self.bonus_objective,
+            "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Contract:
+        """Deserialize from a plain dictionary."""
+        return cls(
+            employer=d["employer"],
+            mission_type=MissionType(d["mission_type"]),
+            difficulty=d["difficulty"],
+            payout=d["payout"],
+            salvage_rights=d["salvage_rights"],
+            bonus_objective=d["bonus_objective"],
+            description=d["description"],
         )

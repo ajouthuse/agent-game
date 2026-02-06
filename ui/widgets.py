@@ -6,6 +6,8 @@ Provides composite drawing functions that combine multiple primitives:
 - draw_table_row(): A fixed-width columnar table row.
 - draw_roster_table(): Company roster summary (mech bay + pilot roster).
 - draw_title_art(): The IRON CONTRACT ASCII art title.
+- draw_contract_list(): Selectable list of contracts for the market screen.
+- draw_contract_briefing(): Detailed contract briefing panel.
 """
 
 import curses
@@ -19,7 +21,7 @@ from ui.colors import (
     COLOR_TITLE,
     COLOR_WARNING,
 )
-from ui.drawing import draw_centered_text
+from ui.drawing import draw_centered_text, draw_box
 
 
 # ── ASCII Art Title ─────────────────────────────────────────────────────────
@@ -336,3 +338,219 @@ def draw_roster_table(win, start_y, company):
         row += 1
 
     return row
+
+
+# ── Contract Market Display ───────────────────────────────────────────────
+
+def draw_contract_list(win, start_y, contracts, selected_index):
+    """Draw a list of available contracts in the contract market.
+
+    Shows each contract as a row with mission type, employer, difficulty
+    (skull rating), and payout. The selected contract is highlighted.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the list.
+        contracts: List of Contract instances to display.
+        selected_index: Index of the currently highlighted contract.
+
+    Returns:
+        The next available row after the contract list.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y
+
+    # Column layout: Type, Employer, Difficulty, Payout, Salvage
+    col_widths = [16, 16, 9, 12, 9]
+    headers = ["MISSION", "EMPLOYER", "DIFF", "PAYOUT", "SALVAGE"]
+    table_width = sum(col_widths) + len(col_widths) - 1
+    table_x = max(1, (max_w - table_width) // 2)
+
+    # Header row
+    draw_table_row(
+        win, row, table_x, headers, col_widths,
+        color_text(COLOR_STATUS) | curses.A_BOLD,
+    )
+    row += 1
+
+    # Separator
+    try:
+        sep = "-" * table_width
+        sep_x = max(1, (max_w - len(sep)) // 2)
+        win.addstr(row, sep_x, sep, color_text(COLOR_BORDER))
+    except curses.error:
+        pass
+    row += 1
+
+    for i, contract in enumerate(contracts):
+        skulls = contract.skulls_display()
+        payout_str = f"{contract.payout:,} CB"
+        salvage_str = f"{contract.salvage_rights}%"
+
+        cols = [
+            contract.mission_type.value,
+            contract.employer,
+            skulls,
+            payout_str,
+            salvage_str,
+        ]
+
+        if i == selected_index:
+            row_attr = color_text(COLOR_ACCENT) | curses.A_BOLD
+            # Draw selection indicator
+            indicator_x = table_x - 2
+            if indicator_x >= 0:
+                try:
+                    win.addstr(row, indicator_x, ">", row_attr)
+                except curses.error:
+                    pass
+        else:
+            row_attr = color_text(COLOR_MENU_INACTIVE)
+
+        draw_table_row(win, row, table_x, cols, col_widths, row_attr)
+        row += 1
+
+    return row
+
+
+def draw_contract_briefing(win, start_y, contract):
+    """Draw a detailed contract briefing panel.
+
+    Shows full contract details including mission type, employer,
+    difficulty, payout, salvage rights, bonus objective, and
+    the flavor text description.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the briefing panel.
+        contract: A Contract instance to display.
+
+    Returns:
+        The next available row after the briefing panel.
+    """
+    max_h, max_w = win.getmaxyx()
+
+    # Briefing box
+    box_w = min(66, max_w - 4)
+    box_x = max(1, (max_w - box_w) // 2)
+    inner_x = box_x + 2
+    inner_w = box_w - 4
+
+    # Calculate box height based on content
+    # We need: title, blank, type, employer, diff, payout, salvage,
+    #          blank, description (wrapped), blank, bonus, blank
+    desc_lines = _wrap_text(contract.description, inner_w)
+    bonus_lines = _wrap_text(
+        f"BONUS: {contract.bonus_objective}", inner_w
+    )
+    box_h = 10 + len(desc_lines) + len(bonus_lines)
+
+    if start_y + box_h >= max_h:
+        box_h = max_h - start_y - 1
+
+    draw_box(win, start_y, box_x, box_h, box_w, title="Mission Briefing")
+
+    row = start_y + 1
+
+    # Mission type and employer
+    title_text = f"{contract.mission_type.value} - {contract.employer}"
+    draw_centered_text(
+        win, row, title_text,
+        color_text(COLOR_TITLE) | curses.A_BOLD,
+    )
+    row += 2
+
+    # Stats
+    skulls = contract.skulls_display()
+    _draw_briefing_line(win, row, inner_x, "Difficulty:", skulls, inner_w)
+    row += 1
+
+    payout_str = f"{contract.payout:,} C-Bills"
+    _draw_briefing_line(win, row, inner_x, "Payout:", payout_str, inner_w)
+    row += 1
+
+    salvage_str = f"{contract.salvage_rights}%"
+    _draw_briefing_line(win, row, inner_x, "Salvage Rights:", salvage_str, inner_w)
+    row += 2
+
+    # Description
+    for line in desc_lines:
+        if 0 <= row < max_h:
+            try:
+                win.addstr(row, inner_x, line[:inner_w], color_text(COLOR_MENU_INACTIVE))
+            except curses.error:
+                pass
+        row += 1
+
+    row += 1
+
+    # Bonus objective
+    for line in bonus_lines:
+        if 0 <= row < max_h:
+            try:
+                win.addstr(row, inner_x, line[:inner_w], color_text(COLOR_ACCENT))
+            except curses.error:
+                pass
+        row += 1
+
+    return row + 1
+
+
+def _draw_briefing_line(win, y, x, label, value, max_width):
+    """Draw a label: value line in the briefing panel.
+
+    Args:
+        win: curses window to draw on.
+        y: Row position.
+        x: Column position.
+        label: The label text (e.g., "Payout:").
+        value: The value text (e.g., "500,000 C-Bills").
+        max_width: Maximum available width.
+    """
+    max_h, max_w = win.getmaxyx()
+    if y < 0 or y >= max_h:
+        return
+
+    try:
+        win.addstr(y, x, label, color_text(COLOR_BORDER) | curses.A_BOLD)
+        value_x = x + len(label) + 1
+        win.addstr(y, value_x, value[:max_width - len(label) - 1],
+                   color_text(COLOR_TITLE))
+    except curses.error:
+        pass
+
+
+def _wrap_text(text, width):
+    """Wrap text to fit within the given width.
+
+    Args:
+        text: The text to wrap.
+        width: Maximum line width.
+
+    Returns:
+        A list of strings, each no longer than width.
+    """
+    if width <= 0:
+        return [text]
+
+    words = text.split()
+    lines = []
+    current_line = ""
+
+    for word in words:
+        if current_line:
+            test_line = current_line + " " + word
+        else:
+            test_line = word
+
+        if len(test_line) <= width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word[:width]
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines if lines else [""]

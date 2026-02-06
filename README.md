@@ -37,17 +37,40 @@ python main.py
 
 - **Arrow Keys (Up/Down)**: Navigate menu options
 - **Enter**: Select an option
+- **Escape**: Go back to previous screen
 - **Q**: Quit the game
 
 ## Project Structure
 
 ```
 agent-game/
-├── main.py          # Entry point - launches the game
-├── game.py          # GameState class with scene management
-├── ui.py            # Reusable terminal UI helpers
-├── requirements.txt # Python dependencies
-└── README.md        # This file
+├── main.py              # Entry point - launches the game
+├── game/                # Game logic and scene management
+│   ├── __init__.py
+│   ├── scene.py         # Base Scene class for all screens
+│   ├── scenes.py        # Concrete scenes (MainMenu, CompanyName, HQ, etc.)
+│   └── state.py         # GameState manager with scene stack and game loop
+├── ui/                  # Terminal UI framework
+│   ├── __init__.py
+│   ├── colors.py        # Color pair constants and initialization
+│   ├── drawing.py       # Core drawing primitives (box, text, menu, bars)
+│   └── widgets.py       # Higher-level widgets (text input, roster table)
+├── data/                # Data models, templates, and generation
+│   ├── __init__.py
+│   ├── models.py        # Dataclasses (BattleMech, MechWarrior, Company)
+│   ├── mechs.py         # Mech template catalog and starting lance
+│   └── names.py         # Random name and callsign generation
+├── tests/               # Unit tests
+│   ├── __init__.py
+│   └── test_models.py   # Tests for data models and generation
+├── requirements.txt     # Python dependencies
+└── README.md            # This file
+```
+
+## Running Tests
+
+```bash
+python -m unittest discover -s tests -v
 ```
 
 ## License

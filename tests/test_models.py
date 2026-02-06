@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 
-from models import (
+from data.models import (
     BattleMech,
     Company,
     MechStatus,
@@ -26,13 +26,13 @@ from models import (
     PilotStatus,
     WeightClass,
 )
-from data import (
+from data.mechs import (
     MECH_TEMPLATES,
     STARTING_LANCE_KEYS,
     create_mech_from_template,
     create_starting_lance,
 )
-from names import (
+from data.names import (
     generate_callsign,
     generate_mechwarrior,
     generate_mechwarrior_roster,
@@ -367,7 +367,7 @@ class TestCompany(unittest.TestCase):
 
 
 class TestMechTemplates(unittest.TestCase):
-    """Tests for the data.py mech template catalog."""
+    """Tests for the data.mechs mech template catalog."""
 
     def test_template_count(self):
         """There are at least 6 mech templates."""
@@ -423,7 +423,7 @@ class TestMechTemplates(unittest.TestCase):
 
 
 class TestNameGeneration(unittest.TestCase):
-    """Tests for the names.py random name/callsign generation."""
+    """Tests for the data.names random name/callsign generation."""
 
     def test_generate_name_format(self):
         """Generated names are in 'First Last' format."""

@@ -1,5 +1,5 @@
 """
-models.py - Core data models for Iron Contract.
+data.models - Core data models for Iron Contract.
 
 Provides dataclasses for the key game entities:
 - BattleMech: A combat mech with stats and status tracking.
@@ -146,6 +146,8 @@ class Company:
         name: Company name chosen by the player.
         c_bills: Available currency (C-Bills).
         reputation: Reputation score on a 0-100 scale.
+        week: Current in-game week number.
+        contracts_completed: Total number of contracts completed.
         mechwarriors: Roster of hired MechWarriors.
         mechs: List of owned BattleMechs in the mech bay.
     """
@@ -153,6 +155,8 @@ class Company:
     name: str
     c_bills: int = 2_000_000
     reputation: int = 15
+    week: int = 1
+    contracts_completed: int = 0
     mechwarriors: List[MechWarrior] = field(default_factory=list)
     mechs: List[BattleMech] = field(default_factory=list)
 
@@ -162,6 +166,8 @@ class Company:
             "name": self.name,
             "c_bills": self.c_bills,
             "reputation": self.reputation,
+            "week": self.week,
+            "contracts_completed": self.contracts_completed,
             "mechwarriors": [mw.to_dict() for mw in self.mechwarriors],
             "mechs": [m.to_dict() for m in self.mechs],
         }
@@ -173,6 +179,8 @@ class Company:
             name=d["name"],
             c_bills=d["c_bills"],
             reputation=d["reputation"],
+            week=d.get("week", 1),
+            contracts_completed=d.get("contracts_completed", 0),
             mechwarriors=[MechWarrior.from_dict(mw) for mw in d["mechwarriors"]],
             mechs=[BattleMech.from_dict(m) for m in d["mechs"]],
         )

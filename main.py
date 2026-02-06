@@ -13,7 +13,7 @@ Usage:
 import curses
 import sys
 
-from game import GameState
+from game.state import GameState
 
 
 def main():

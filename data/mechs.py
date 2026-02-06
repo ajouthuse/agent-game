@@ -1,5 +1,5 @@
 """
-data.py - BattleMech template definitions for Iron Contract.
+data.mechs - BattleMech template definitions for Iron Contract.
 
 Provides a catalog of mech variants that can be instantiated as BattleMech
 objects. Each template is a dictionary of stats that can be passed to
@@ -9,7 +9,7 @@ Template mechs span Light, Medium, Heavy, and Assault weight classes,
 inspired by classic BattleTech designs.
 """
 
-from models import BattleMech, WeightClass
+from data.models import BattleMech, WeightClass
 
 
 # ── Mech Templates ────────────────────────────────────────────────────────

@@ -5,12 +5,17 @@ Provides:
 - Scene: Base class for all game scenes (menus, gameplay screens, etc.)
 - GameState: Manages a stack of scenes and drives the main game loop.
 - MainMenuScene: The main menu with New Game / Quit options.
-- PlaceholderScene: A temporary "Game starting..." screen.
+- CompanyNameScene: Text input screen for naming the mercenary company.
+- RosterSummaryScene: Displays the newly created company roster.
+- HQScene: Placeholder headquarters screen (post-company-creation).
 """
 
 import curses
 
 import ui
+from data import create_starting_lance
+from models import Company
+from names import generate_mechwarrior_roster
 
 
 # ── Scene Base Class ────────────────────────────────────────────────────────
@@ -84,7 +89,7 @@ class MainMenuScene(Scene):
         """Execute the currently highlighted menu option."""
         choice = self.MENU_OPTIONS[self.selected]
         if choice == "New Game":
-            self.game_state.push_scene(PlaceholderScene(self.game_state))
+            self.game_state.push_scene(CompanyNameScene(self.game_state))
         elif choice == "Quit":
             self.game_state.running = False
 
@@ -118,62 +123,276 @@ class MainMenuScene(Scene):
         ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
 
 
-# ── Placeholder Scene ───────────────────────────────────────────────────────
+# ── Company Name Input Scene ───────────────────────────────────────────────
 
-class PlaceholderScene(Scene):
-    """Temporary placeholder scene shown when starting a new game."""
+class CompanyNameScene(Scene):
+    """Text input scene where the player names their mercenary company.
+
+    After entering a valid name and pressing Enter, the company is created
+    with a starting lance and roster, and the player proceeds to the
+    roster summary screen.
+    """
+
+    MAX_NAME_LENGTH = 30
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.company_name = ""
+        self.error_message = ""
 
     def handle_input(self, key):
-        """Press any key to return to the main menu.
+        """Handle text input for the company name.
+
+        Supports typing, backspace, Enter to confirm, and Escape to cancel.
 
         Args:
             key: The curses key code.
         """
-        if key in (ord("q"), ord("Q")):
-            self.game_state.running = False
-        elif key in (curses.KEY_ENTER, 10, 13, 27):  # Enter or Escape
+        if key == 27:  # Escape
             self.game_state.pop_scene()
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._confirm_name()
+        elif key in (curses.KEY_BACKSPACE, 127, 8):
+            if self.company_name:
+                self.company_name = self.company_name[:-1]
+                self.error_message = ""
+        elif 32 <= key <= 126:  # Printable ASCII
+            if len(self.company_name) < self.MAX_NAME_LENGTH:
+                self.company_name += chr(key)
+                self.error_message = ""
+
+    def _confirm_name(self):
+        """Validate the company name and create the company."""
+        name = self.company_name.strip()
+        if not name:
+            self.error_message = "Company name cannot be empty!"
+            return
+
+        # Create company with starting lance and pilots
+        company = _create_new_company(name)
+        self.game_state.company = company
+
+        # Pop this scene and push the roster summary
+        self.game_state.pop_scene()
+        self.game_state.push_scene(RosterSummaryScene(self.game_state))
 
     def draw(self, win):
-        """Render the placeholder new-game screen.
+        """Render the company name input screen.
 
         Args:
             win: The curses standard screen window.
         """
         max_h, max_w = win.getmaxyx()
 
-        ui.draw_header_bar(win, "IRON CONTRACT - NEW GAME")
-        ui.draw_status_bar(win, "Press Enter or Esc to return to menu | Q: Quit")
+        ui.draw_header_bar(win, "IRON CONTRACT - NEW CAMPAIGN")
+        ui.draw_status_bar(win, "Type your company name | Enter: Confirm | Esc: Back")
 
-        # Centered content
         center_y = max_h // 2
+
+        # Box around the input area
+        box_w = 50
+        box_h = 9
+        box_x = (max_w - box_w) // 2
+        box_y = center_y - 5
+        ui.draw_box(win, box_y, box_x, box_h, box_w, title="Company Creation")
+
+        # Prompt text
         ui.draw_centered_text(
             win,
-            center_y - 2,
-            "Game starting...",
+            center_y - 3,
+            "Name your mercenary company:",
             ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
         )
 
-        # Decorative box around the message
-        box_w = 40
-        box_h = 7
-        box_x = (max_w - box_w) // 2
-        box_y = center_y - 4
-        ui.draw_box(win, box_y, box_x, box_h, box_w, title="New Campaign")
+        # Text input field
+        input_w = 34
+        input_x = (max_w - input_w) // 2
+        ui.draw_text_input(win, center_y - 1, input_x, input_w, self.company_name)
 
+        # Error message (if any)
+        if self.error_message:
+            ui.draw_centered_text(
+                win,
+                center_y + 1,
+                self.error_message,
+                ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD,
+            )
+
+        # Hint
         ui.draw_centered_text(
             win,
-            center_y + 1,
-            "Your mercenary company awaits.",
-            ui.color_text(ui.COLOR_ACCENT),
-        )
-
-        ui.draw_centered_text(
-            win,
-            center_y + 4,
-            "(This screen will be replaced in a future update.)",
+            center_y + 5,
+            "Choose a name worthy of the battlefield.",
             ui.color_text(ui.COLOR_MENU_INACTIVE),
         )
+
+
+# ── Roster Summary Scene ──────────────────────────────────────────────────
+
+class RosterSummaryScene(Scene):
+    """Displays the newly created company roster before proceeding to HQ.
+
+    Shows the full mech bay and pilot roster in table format.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        """Press Enter to proceed to HQ, or Escape to go back.
+
+        Args:
+            key: The curses key code.
+        """
+        if key in (curses.KEY_ENTER, 10, 13):
+            # Replace the scene stack: pop summary, push HQ
+            self.game_state.pop_scene()
+            self.game_state.push_scene(HQScene(self.game_state))
+        elif key == 27:  # Escape - go back to main menu
+            self.game_state.company = None
+            self.game_state.pop_scene()
+        elif key == curses.KEY_UP:
+            self.scroll_offset = max(0, self.scroll_offset - 1)
+        elif key == curses.KEY_DOWN:
+            self.scroll_offset += 1
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def draw(self, win):
+        """Render the company roster summary.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - COMPANY ROSTER")
+        ui.draw_status_bar(win, "Enter: Proceed to HQ | Esc: Cancel | Q: Quit")
+
+        # Title
+        start_y = 2 - self.scroll_offset
+
+        ui.draw_centered_text(
+            win,
+            start_y,
+            "COMPANY CREATED SUCCESSFULLY",
+            ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD,
+        )
+        start_y += 1
+
+        # Draw the roster tables
+        ui.draw_roster_table(win, start_y + 1, company)
+
+        # "Press Enter to continue" prompt at bottom
+        ui.draw_centered_text(
+            win,
+            max_h - 3,
+            "[ Press ENTER to proceed to Headquarters ]",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+
+
+# ── HQ Scene (Placeholder) ───────────────────────────────────────────────
+
+class HQScene(Scene):
+    """Placeholder headquarters screen shown after company creation.
+
+    This will be expanded in future issues to become the main gameplay hub.
+    """
+
+    def handle_input(self, key):
+        """Handle input at HQ.
+
+        Args:
+            key: The curses key code.
+        """
+        if key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def draw(self, win):
+        """Render the HQ placeholder screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        company_title = f"IRON CONTRACT - {company.name.upper()}" if company else "IRON CONTRACT - HQ"
+        ui.draw_header_bar(win, company_title)
+        ui.draw_status_bar(win, "Q: Quit")
+
+        center_y = max_h // 2
+
+        # Box
+        box_w = 50
+        box_h = 9
+        box_x = (max_w - box_w) // 2
+        box_y = center_y - 5
+        ui.draw_box(win, box_y, box_x, box_h, box_w, title="Headquarters")
+
+        ui.draw_centered_text(
+            win,
+            center_y - 2,
+            "Welcome, Commander.",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+
+        if company:
+            ui.draw_centered_text(
+                win,
+                center_y,
+                f"{company.name} is ready for action.",
+                ui.color_text(ui.COLOR_ACCENT),
+            )
+            stats = (
+                f"Mechs: {len(company.mechs)} | "
+                f"Pilots: {len(company.mechwarriors)} | "
+                f"C-Bills: {company.c_bills:,}"
+            )
+            ui.draw_centered_text(
+                win,
+                center_y + 1,
+                stats,
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+
+        ui.draw_centered_text(
+            win,
+            center_y + 5,
+            "(More features coming soon.)",
+            ui.color_text(ui.COLOR_MENU_INACTIVE),
+        )
+
+
+# ── Company Creation Helper ──────────────────────────────────────────────
+
+def _create_new_company(name):
+    """Create a new mercenary company with a starting lance and pilots.
+
+    Generates 4 mechs (2 medium, 2 light) and 4 randomized MechWarriors,
+    then auto-assigns each pilot to a mech.
+
+    Args:
+        name: The player-chosen company name.
+
+    Returns:
+        A fully initialized Company instance.
+    """
+    mechs = create_starting_lance()
+    pilots = generate_mechwarrior_roster(4)
+
+    # Auto-assign pilots to mechs
+    for pilot, mech in zip(pilots, mechs):
+        pilot.assigned_mech = mech.name
+
+    return Company(
+        name=name,
+        mechwarriors=pilots,
+        mechs=mechs,
+    )
 
 
 # ── Game State Manager ──────────────────────────────────────────────────────
@@ -183,10 +402,15 @@ class GameState:
 
     The scene stack allows pushing new scenes on top (e.g., submenus,
     gameplay screens) and popping back to previous ones.
+
+    Attributes:
+        running: Whether the game loop should continue.
+        company: The player's Company instance (None until created).
     """
 
     def __init__(self):
         self.running = True
+        self.company = None
         self._scene_stack = []
 
     @property

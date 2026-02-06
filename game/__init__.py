@@ -16,6 +16,7 @@ from game.scenes import (
     RosterScene,
     ContractMarketScene,
     ContractBriefingScene,
+    MissionReportScene,
 )
 from game.state import GameState
 
@@ -28,5 +29,6 @@ __all__ = [
     "RosterScene",
     "ContractMarketScene",
     "ContractBriefingScene",
+    "MissionReportScene",
     "GameState",
 ]

@@ -9,6 +9,7 @@ Provides:
 - RosterScene: Full company roster view.
 - ContractMarketScene: Contract market with selectable contracts.
 - ContractBriefingScene: Detailed briefing for a selected contract.
+- MissionReportScene: Post-mission combat log and results summary.
 """
 
 import curses
@@ -16,6 +17,7 @@ import curses
 import ui
 from data import Company, create_starting_lance, create_starting_pilots
 from data.contracts import generate_contracts
+from data.combat import resolve_combat
 from game.scene import Scene
 
 
@@ -526,20 +528,26 @@ class ContractBriefingScene(Scene):
             self.game_state.pop_scene()
 
     def _accept_contract(self):
-        """Accept the contract and return to HQ.
+        """Accept the contract and launch the mission.
 
-        Adds the payout to the company's C-Bills, increments the
-        contracts completed counter, and advances the month.
+        Resolves combat using the auto-resolved combat system, then
+        pushes the MissionReportScene to display the results.
+        The briefing and market scenes are popped so that when the
+        report is dismissed, the player returns to HQ.
         """
         company = self.game_state.company
         if company:
-            company.c_bills += self.contract.payout
-            company.contracts_completed += 1
-            company.week += 1
+            # Resolve combat (modifies company in place)
+            result = resolve_combat(company, self.contract)
 
-        # Pop briefing and market scenes to return to HQ
-        self.game_state.pop_scene()  # Pop briefing
-        self.game_state.pop_scene()  # Pop market
+            # Pop briefing and market scenes
+            self.game_state.pop_scene()  # Pop briefing
+            self.game_state.pop_scene()  # Pop market
+
+            # Push mission report scene
+            self.game_state.push_scene(
+                MissionReportScene(self.game_state, result, self.contract)
+            )
 
     def draw(self, win):
         """Render the contract briefing screen.
@@ -562,6 +570,106 @@ class ContractBriefingScene(Scene):
         # Draw the accept/go back menu
         menu_y = min(row + 1, max_h - 5)
         ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
+
+
+# ── Mission Report Scene ─────────────────────────────────────────────────
+
+class MissionReportScene(Scene):
+    """Post-mission report screen showing combat log and results.
+
+    Displays combat log entries one at a time with press-any-key pacing
+    for dramatic effect. Once all events are revealed, shows a summary
+    panel with outcome, damage, injuries, and rewards. Press Enter to
+    return to HQ.
+    """
+
+    def __init__(self, game_state, result, contract):
+        super().__init__(game_state)
+        self.result = result
+        self.contract = contract
+        self.visible_events = 1  # Start with first event visible
+        self.all_revealed = False
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        """Advance combat log or return to HQ.
+
+        Any key press reveals the next combat log entry. Once all
+        entries are visible, the summary is shown. Press Enter or
+        Escape to return to HQ.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == -1:
+            return
+
+        if not self.all_revealed:
+            # Reveal next event
+            self.visible_events += 1
+            if self.visible_events >= len(self.result.combat_log):
+                self.all_revealed = True
+        else:
+            # Summary is visible - navigate or dismiss
+            if key in (curses.KEY_ENTER, 10, 13, 27):
+                self.game_state.pop_scene()  # Return to HQ
+            elif key == curses.KEY_UP:
+                self.scroll_offset = max(0, self.scroll_offset - 1)
+            elif key == curses.KEY_DOWN:
+                self.scroll_offset += 1
+            elif key in (ord("q"), ord("Q")):
+                self.game_state.running = False
+
+    def draw(self, win):
+        """Render the mission report screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        # Header
+        outcome_title = f"IRON CONTRACT - MISSION REPORT"
+        ui.draw_header_bar(win, outcome_title)
+
+        if self.all_revealed:
+            ui.draw_status_bar(
+                win,
+                "Enter: Return to HQ | Up/Down: Scroll | Q: Quit"
+            )
+        else:
+            ui.draw_status_bar(
+                win,
+                "Press any key to continue..."
+            )
+
+        # Contract info line
+        row = 2
+        contract_info = (
+            f"{self.contract.mission_type.value} for {self.contract.employer} "
+            f"| Difficulty: {self.contract.skulls_display()}"
+        )
+        ui.draw_centered_text(
+            win, row, contract_info,
+            ui.color_text(ui.COLOR_MENU_INACTIVE),
+        )
+        row += 2
+
+        # Draw the mission report (combat log + summary)
+        ui.draw_mission_report(
+            win, row, self.result,
+            self.visible_events,
+            self.scroll_offset,
+        )
+
+        # Show "Return to HQ" prompt when summary is visible
+        if self.all_revealed:
+            ui.draw_centered_text(
+                win,
+                max_h - 3,
+                "[ Press ENTER to return to Headquarters ]",
+                ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+            )
 
 
 # ── Company Creation Helper ──────────────────────────────────────────────

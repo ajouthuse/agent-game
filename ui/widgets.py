@@ -8,6 +8,7 @@ Provides composite drawing functions that combine multiple primitives:
 - draw_title_art(): The IRON CONTRACT ASCII art title.
 - draw_contract_list(): Selectable list of contracts for the market screen.
 - draw_contract_briefing(): Detailed contract briefing panel.
+- draw_mission_report(): Mission report with combat log and summary.
 """
 
 import curses
@@ -554,3 +555,200 @@ def _wrap_text(text, width):
         lines.append(current_line)
 
     return lines if lines else [""]
+
+
+# ── Mission Report Display ───────────────────────────────────────────────
+
+def draw_mission_report(win, start_y, result, visible_events, scroll_offset=0):
+    """Draw the mission report screen with combat log and summary.
+
+    Shows combat log entries up to visible_events count (for dramatic
+    press-any-key pacing), followed by a summary panel showing outcome,
+    damage, injuries, and rewards once all events are revealed.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the report.
+        result: A MissionResult instance from data.combat.
+        visible_events: Number of combat log entries currently visible.
+        scroll_offset: Vertical scroll offset for long reports.
+
+    Returns:
+        The next available row after the report display.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y - scroll_offset
+
+    # ── Outcome Banner ──
+    outcome_text = f"=== MISSION OUTCOME: {result.outcome.value.upper()} ==="
+    if result.outcome.value == "Victory":
+        outcome_attr = color_text(COLOR_ACCENT) | curses.A_BOLD
+    elif result.outcome.value == "Pyrrhic Victory":
+        outcome_attr = color_text(COLOR_TITLE) | curses.A_BOLD
+    else:
+        outcome_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+    draw_centered_text(win, row, outcome_text, outcome_attr)
+    row += 1
+
+    # Lance power and success chance info
+    info_text = (
+        f"Lance Power: {result.lance_power:.0f} | "
+        f"Success Chance: {result.success_chance * 100:.0f}%"
+    )
+    draw_centered_text(win, row, info_text, color_text(COLOR_MENU_INACTIVE))
+    row += 2
+
+    # ── Combat Log ──
+    draw_centered_text(
+        win, row, "--- COMBAT LOG ---",
+        color_text(COLOR_BORDER) | curses.A_BOLD,
+    )
+    row += 1
+
+    log_width = min(70, max_w - 6)
+    log_x = max(2, (max_w - log_width) // 2)
+
+    for i, event in enumerate(result.combat_log):
+        if i >= visible_events:
+            break
+
+        # Wrap long event text
+        wrapped = _wrap_text(event, log_width)
+        for line in wrapped:
+            if 0 <= row < max_h - 1:
+                # Color events based on content tone
+                if i == len(result.combat_log) - 1:
+                    # Final event (outcome summary) gets outcome color
+                    event_attr = outcome_attr
+                else:
+                    event_attr = color_text(COLOR_MENU_INACTIVE)
+                try:
+                    prefix = f"  [{i + 1}] " if line == wrapped[0] else "      "
+                    win.addstr(row, log_x, prefix, color_text(COLOR_BORDER))
+                    win.addstr(row, log_x + len(prefix), line[:log_width - len(prefix)],
+                               event_attr)
+                except curses.error:
+                    pass
+            row += 1
+        row += 1  # Blank line between events
+
+    # Show "press any key" prompt if not all events visible
+    all_events_visible = visible_events >= len(result.combat_log)
+
+    if not all_events_visible:
+        if 0 <= row < max_h - 1:
+            draw_centered_text(
+                win, row,
+                "[ Press any key to continue... ]",
+                color_text(COLOR_TITLE) | curses.A_BOLD,
+            )
+        row += 2
+        return row
+
+    # ── Summary Panel (shown after all events are revealed) ──
+    row += 1
+    draw_centered_text(
+        win, row, "--- MISSION SUMMARY ---",
+        color_text(COLOR_BORDER) | curses.A_BOLD,
+    )
+    row += 2
+
+    summary_w = min(60, max_w - 6)
+    summary_x = max(2, (max_w - summary_w) // 2)
+
+    # Rewards
+    if 0 <= row < max_h - 1:
+        _draw_summary_line(win, row, summary_x, "C-Bills Earned:",
+                           f"{result.c_bills_earned:,}", summary_w)
+    row += 1
+
+    if 0 <= row < max_h - 1:
+        _draw_summary_line(win, row, summary_x, "XP Earned:",
+                           f"{result.xp_earned} per pilot", summary_w)
+    row += 2
+
+    # Mech Damage
+    if result.mech_damage:
+        if 0 <= row < max_h - 1:
+            draw_centered_text(
+                win, row, "DAMAGE REPORT",
+                color_text(COLOR_WARNING) | curses.A_BOLD,
+            )
+        row += 1
+
+        for dmg in result.mech_damage:
+            if 0 <= row < max_h - 1:
+                if dmg.destroyed:
+                    dmg_text = f"  {dmg.mech_name}: DESTROYED (Armor -{dmg.armor_lost}, Structure -{dmg.structure_lost})"
+                    dmg_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+                else:
+                    dmg_text = f"  {dmg.mech_name}: Armor -{dmg.armor_lost}"
+                    if dmg.structure_lost > 0:
+                        dmg_text += f", Structure -{dmg.structure_lost}"
+                    dmg_attr = color_text(COLOR_WARNING)
+                try:
+                    win.addstr(row, summary_x, dmg_text[:summary_w], dmg_attr)
+                except curses.error:
+                    pass
+            row += 1
+        row += 1
+    else:
+        if 0 <= row < max_h - 1:
+            draw_centered_text(
+                win, row, "No damage sustained!",
+                color_text(COLOR_ACCENT),
+            )
+        row += 2
+
+    # Pilot Injuries
+    if result.pilot_injuries:
+        if 0 <= row < max_h - 1:
+            draw_centered_text(
+                win, row, "PILOT INJURIES",
+                color_text(COLOR_WARNING) | curses.A_BOLD,
+            )
+        row += 1
+
+        for inj in result.pilot_injuries:
+            if 0 <= row < max_h - 1:
+                inj_text = f'  "{inj.callsign}": {inj.injuries_sustained} injury(s) sustained'
+                try:
+                    win.addstr(row, summary_x, inj_text[:summary_w],
+                               color_text(COLOR_WARNING))
+                except curses.error:
+                    pass
+            row += 1
+        row += 1
+    else:
+        if 0 <= row < max_h - 1:
+            draw_centered_text(
+                win, row, "No pilot injuries!",
+                color_text(COLOR_ACCENT),
+            )
+        row += 2
+
+    return row
+
+
+def _draw_summary_line(win, y, x, label, value, max_width):
+    """Draw a label: value line in the mission summary.
+
+    Args:
+        win: curses window to draw on.
+        y: Row position.
+        x: Column position.
+        label: The label text.
+        value: The value text.
+        max_width: Maximum available width.
+    """
+    max_h, max_w = win.getmaxyx()
+    if y < 0 or y >= max_h:
+        return
+
+    try:
+        win.addstr(y, x, label, color_text(COLOR_BORDER) | curses.A_BOLD)
+        value_x = x + len(label) + 1
+        win.addstr(y, value_x, value[:max_width - len(label) - 1],
+                   color_text(COLOR_ACCENT) | curses.A_BOLD)
+    except curses.error:
+        pass

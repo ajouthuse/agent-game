@@ -52,7 +52,10 @@ class BattleMech:
         tonnage: Mech weight in tons.
         armor_current: Current armor hit points.
         armor_max: Maximum armor hit points.
+        structure_current: Current internal structure hit points.
+        structure_max: Maximum internal structure hit points.
         firepower: Abstract combat strength rating (1-10).
+        speed: Abstract speed/mobility rating (1-10).
         status: Operational readiness.
     """
 
@@ -61,7 +64,10 @@ class BattleMech:
     tonnage: int
     armor_current: int
     armor_max: int
+    structure_current: int
+    structure_max: int
     firepower: int
+    speed: int
     status: MechStatus = MechStatus.READY
 
     def to_dict(self) -> dict:
@@ -72,7 +78,10 @@ class BattleMech:
             "tonnage": self.tonnage,
             "armor_current": self.armor_current,
             "armor_max": self.armor_max,
+            "structure_current": self.structure_current,
+            "structure_max": self.structure_max,
             "firepower": self.firepower,
+            "speed": self.speed,
             "status": self.status.value,
         }
 
@@ -85,7 +94,10 @@ class BattleMech:
             tonnage=d["tonnage"],
             armor_current=d["armor_current"],
             armor_max=d["armor_max"],
+            structure_current=d["structure_current"],
+            structure_max=d["structure_max"],
             firepower=d["firepower"],
+            speed=d["speed"],
             status=MechStatus(d["status"]),
         )
 
@@ -101,6 +113,9 @@ class MechWarrior:
         callsign: Radio callsign / nickname.
         gunnery: Gunnery skill (1-6, lower is better).
         piloting: Piloting skill (1-6, lower is better).
+        morale: Pilot morale level (0-100, higher is better).
+        injuries: Number of current injuries.
+        experience: Accumulated experience points.
         status: Current health/operational status.
         assigned_mech: Name of the assigned BattleMech, or None.
     """
@@ -109,6 +124,9 @@ class MechWarrior:
     callsign: str
     gunnery: int
     piloting: int
+    morale: int = 75
+    injuries: int = 0
+    experience: int = 0
     status: PilotStatus = PilotStatus.ACTIVE
     assigned_mech: Optional[str] = None
 
@@ -119,6 +137,9 @@ class MechWarrior:
             "callsign": self.callsign,
             "gunnery": self.gunnery,
             "piloting": self.piloting,
+            "morale": self.morale,
+            "injuries": self.injuries,
+            "experience": self.experience,
             "status": self.status.value,
             "assigned_mech": self.assigned_mech,
         }
@@ -131,6 +152,9 @@ class MechWarrior:
             callsign=d["callsign"],
             gunnery=d["gunnery"],
             piloting=d["piloting"],
+            morale=d.get("morale", 75),
+            injuries=d.get("injuries", 0),
+            experience=d.get("experience", 0),
             status=PilotStatus(d["status"]),
             assigned_mech=d.get("assigned_mech"),
         )
@@ -153,7 +177,7 @@ class Company:
     """
 
     name: str
-    c_bills: int = 2_000_000
+    c_bills: int = 500_000
     reputation: int = 15
     week: int = 1
     contracts_completed: int = 0

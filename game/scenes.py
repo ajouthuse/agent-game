@@ -11,7 +11,7 @@ Provides:
 import curses
 
 import ui
-from data import Company, create_starting_lance, generate_mechwarrior_roster
+from data import Company, create_starting_lance, create_starting_pilots
 from game.scene import Scene
 
 
@@ -250,25 +250,46 @@ class RosterSummaryScene(Scene):
         )
 
 
-# ── HQ Scene (Placeholder) ───────────────────────────────────────────────
+# ── HQ Scene (Hub / Dashboard) ───────────────────────────────────────────
 
 class HQScene(Scene):
-    """Placeholder headquarters screen shown after company creation.
+    """Headquarters hub screen shown after company creation.
 
-    This will be expanded in future issues to become the main gameplay hub.
+    Serves as the main gameplay dashboard with menu options including
+    viewing the company roster.
     """
 
+    MENU_OPTIONS = ["View Roster", "Quit"]
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.selected = 0
+
     def handle_input(self, key):
-        """Handle input at HQ.
+        """Handle input at HQ with selectable menu.
 
         Args:
             key: The curses key code.
         """
-        if key in (ord("q"), ord("Q")):
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % len(self.MENU_OPTIONS)
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % len(self.MENU_OPTIONS)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._select_option()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _select_option(self):
+        """Execute the currently highlighted menu option."""
+        choice = self.MENU_OPTIONS[self.selected]
+        if choice == "View Roster":
+            self.game_state.push_scene(RosterScene(self.game_state))
+        elif choice == "Quit":
             self.game_state.running = False
 
     def draw(self, win):
-        """Render the HQ placeholder screen.
+        """Render the HQ dashboard screen with menu.
 
         Args:
             win: The curses standard screen window.
@@ -278,15 +299,15 @@ class HQScene(Scene):
 
         company_title = f"IRON CONTRACT - {company.name.upper()}" if company else "IRON CONTRACT - HQ"
         ui.draw_header_bar(win, company_title)
-        ui.draw_status_bar(win, "Q: Quit")
+        ui.draw_status_bar(win, "Arrow Keys: Navigate | Enter: Select | Q: Quit")
 
-        center_y = max_h // 2
+        center_y = max_h // 2 - 2
 
         # Box
         box_w = 50
-        box_h = 9
+        box_h = 13
         box_x = (max_w - box_w) // 2
-        box_y = center_y - 5
+        box_y = center_y - 4
         ui.draw_box(win, box_y, box_x, box_h, box_w, title="Headquarters")
 
         ui.draw_centered_text(
@@ -315,12 +336,56 @@ class HQScene(Scene):
                 ui.color_text(ui.COLOR_MENU_INACTIVE),
             )
 
-        ui.draw_centered_text(
-            win,
-            center_y + 5,
-            "(More features coming soon.)",
-            ui.color_text(ui.COLOR_MENU_INACTIVE),
-        )
+        # Menu options
+        menu_y = center_y + 4
+        ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
+
+
+# ── Roster Scene (Accessible from HQ) ───────────────────────────────────
+
+class RosterScene(Scene):
+    """Full roster screen accessible from HQ.
+
+    Displays the company's mech bay and pilot roster in a combined
+    table view. Shows armor percentage, pilot assignments, and
+    damage indicators for non-Ready mechs and non-Active pilots.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        """Press Escape to return to HQ.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == 27:  # Escape - return to HQ
+            self.game_state.pop_scene()
+        elif key == curses.KEY_UP:
+            self.scroll_offset = max(0, self.scroll_offset - 1)
+        elif key == curses.KEY_DOWN:
+            self.scroll_offset += 1
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def draw(self, win):
+        """Render the full roster screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - COMPANY ROSTER")
+        ui.draw_status_bar(win, "Esc: Back to HQ | Q: Quit | Up/Down: Scroll")
+
+        start_y = 2 - self.scroll_offset
+
+        # Draw the roster tables
+        ui.draw_roster_table(win, start_y + 1, company)
 
 
 # ── Company Creation Helper ──────────────────────────────────────────────
@@ -328,8 +393,9 @@ class HQScene(Scene):
 def _create_new_company(name):
     """Create a new mercenary company with a starting lance and pilots.
 
-    Generates 4 mechs (2 medium, 2 light) and 4 randomized MechWarriors,
-    then auto-assigns each pilot to a mech.
+    Creates 4 mechs (3 medium, 1 light) and the hardcoded starter pilots
+    (Ace, Raven, Bulldog, Ghost), then auto-assigns each pilot to a mech.
+    Starting C-Bills: 500,000.
 
     Args:
         name: The player-chosen company name.
@@ -338,7 +404,7 @@ def _create_new_company(name):
         A fully initialized Company instance.
     """
     mechs = create_starting_lance()
-    pilots = generate_mechwarrior_roster(4)
+    pilots = create_starting_pilots()
 
     # Auto-assign pilots to mechs
     for pilot, mech in zip(pilots, mechs):
@@ -346,6 +412,7 @@ def _create_new_company(name):
 
     return Company(
         name=name,
+        c_bills=500_000,
         mechwarriors=pilots,
         mechs=mechs,
     )

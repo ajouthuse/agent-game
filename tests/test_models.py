@@ -2,10 +2,11 @@
 test_models.py - Unit tests for Iron Contract data models.
 
 Tests cover:
-- BattleMech creation and serialization
-- MechWarrior creation and serialization
+- BattleMech creation and serialization (including structure and speed)
+- MechWarrior creation and serialization (including morale, injuries, XP)
 - Company creation and serialization
 - Starting lance generation
+- Starting pilot generation
 - MechWarrior name/callsign generation
 - Company creation helper round-trip
 """
@@ -29,8 +30,10 @@ from data.models import (
 from data.mechs import (
     MECH_TEMPLATES,
     STARTING_LANCE_KEYS,
+    STARTING_PILOTS,
     create_mech_from_template,
     create_starting_lance,
+    create_starting_pilots,
 )
 from data.names import (
     generate_callsign,
@@ -51,7 +54,10 @@ class TestBattleMech(unittest.TestCase):
             "tonnage": 55,
             "armor_current": 136,
             "armor_max": 136,
+            "structure_current": 48,
+            "structure_max": 48,
             "firepower": 6,
+            "speed": 6,
             "status": MechStatus.READY,
         }
         defaults.update(overrides)
@@ -65,7 +71,10 @@ class TestBattleMech(unittest.TestCase):
         self.assertEqual(mech.tonnage, 55)
         self.assertEqual(mech.armor_current, 136)
         self.assertEqual(mech.armor_max, 136)
+        self.assertEqual(mech.structure_current, 48)
+        self.assertEqual(mech.structure_max, 48)
         self.assertEqual(mech.firepower, 6)
+        self.assertEqual(mech.speed, 6)
         self.assertEqual(mech.status, MechStatus.READY)
 
     def test_default_status(self):
@@ -76,7 +85,10 @@ class TestBattleMech(unittest.TestCase):
             tonnage=20,
             armor_current=48,
             armor_max=48,
+            structure_current=20,
+            structure_max=20,
             firepower=2,
+            speed=10,
         )
         self.assertEqual(mech.status, MechStatus.READY)
 
@@ -89,7 +101,10 @@ class TestBattleMech(unittest.TestCase):
         self.assertEqual(d["tonnage"], 55)
         self.assertEqual(d["armor_current"], 136)
         self.assertEqual(d["armor_max"], 136)
+        self.assertEqual(d["structure_current"], 48)
+        self.assertEqual(d["structure_max"], 48)
         self.assertEqual(d["firepower"], 6)
+        self.assertEqual(d["speed"], 6)
         self.assertEqual(d["status"], "Ready")
 
     def test_from_dict(self):
@@ -100,7 +115,10 @@ class TestBattleMech(unittest.TestCase):
             "tonnage": 100,
             "armor_current": 250,
             "armor_max": 304,
+            "structure_current": 60,
+            "structure_max": 80,
             "firepower": 10,
+            "speed": 2,
             "status": "Damaged",
         }
         mech = BattleMech.from_dict(d)
@@ -109,7 +127,10 @@ class TestBattleMech(unittest.TestCase):
         self.assertEqual(mech.tonnage, 100)
         self.assertEqual(mech.armor_current, 250)
         self.assertEqual(mech.armor_max, 304)
+        self.assertEqual(mech.structure_current, 60)
+        self.assertEqual(mech.structure_max, 80)
         self.assertEqual(mech.firepower, 10)
+        self.assertEqual(mech.speed, 2)
         self.assertEqual(mech.status, MechStatus.DAMAGED)
 
     def test_round_trip(self):
@@ -136,6 +157,17 @@ class TestBattleMech(unittest.TestCase):
             restored = BattleMech.from_dict(d)
             self.assertEqual(restored.weight_class, wc)
 
+    def test_structure_fields(self):
+        """BattleMech structure fields track internal structure."""
+        mech = self._make_mech(structure_current=30, structure_max=48)
+        self.assertEqual(mech.structure_current, 30)
+        self.assertEqual(mech.structure_max, 48)
+
+    def test_speed_field(self):
+        """BattleMech speed field is stored correctly."""
+        mech = self._make_mech(speed=8)
+        self.assertEqual(mech.speed, 8)
+
 
 class TestMechWarrior(unittest.TestCase):
     """Tests for the MechWarrior dataclass."""
@@ -147,6 +179,9 @@ class TestMechWarrior(unittest.TestCase):
             "callsign": "Falcon",
             "gunnery": 4,
             "piloting": 4,
+            "morale": 75,
+            "injuries": 0,
+            "experience": 0,
             "status": PilotStatus.ACTIVE,
             "assigned_mech": None,
         }
@@ -160,13 +195,19 @@ class TestMechWarrior(unittest.TestCase):
         self.assertEqual(pilot.callsign, "Falcon")
         self.assertEqual(pilot.gunnery, 4)
         self.assertEqual(pilot.piloting, 4)
+        self.assertEqual(pilot.morale, 75)
+        self.assertEqual(pilot.injuries, 0)
+        self.assertEqual(pilot.experience, 0)
         self.assertEqual(pilot.status, PilotStatus.ACTIVE)
         self.assertIsNone(pilot.assigned_mech)
 
     def test_default_status(self):
-        """MechWarrior defaults to ACTIVE status."""
+        """MechWarrior defaults to ACTIVE status with correct attribute defaults."""
         pilot = MechWarrior(name="Test", callsign="Test", gunnery=3, piloting=3)
         self.assertEqual(pilot.status, PilotStatus.ACTIVE)
+        self.assertEqual(pilot.morale, 75)
+        self.assertEqual(pilot.injuries, 0)
+        self.assertEqual(pilot.experience, 0)
 
     def test_assigned_mech(self):
         """MechWarrior can be assigned to a mech."""
@@ -181,6 +222,9 @@ class TestMechWarrior(unittest.TestCase):
         self.assertEqual(d["callsign"], "Falcon")
         self.assertEqual(d["gunnery"], 4)
         self.assertEqual(d["piloting"], 4)
+        self.assertEqual(d["morale"], 75)
+        self.assertEqual(d["injuries"], 0)
+        self.assertEqual(d["experience"], 0)
         self.assertEqual(d["status"], "Active")
         self.assertEqual(d["assigned_mech"], "Atlas AS7-D")
 
@@ -197,6 +241,9 @@ class TestMechWarrior(unittest.TestCase):
             "callsign": "Blaze",
             "gunnery": 3,
             "piloting": 5,
+            "morale": 80,
+            "injuries": 1,
+            "experience": 250,
             "status": "Injured",
             "assigned_mech": "Jenner JR7-D",
         }
@@ -205,14 +252,35 @@ class TestMechWarrior(unittest.TestCase):
         self.assertEqual(pilot.callsign, "Blaze")
         self.assertEqual(pilot.gunnery, 3)
         self.assertEqual(pilot.piloting, 5)
+        self.assertEqual(pilot.morale, 80)
+        self.assertEqual(pilot.injuries, 1)
+        self.assertEqual(pilot.experience, 250)
         self.assertEqual(pilot.status, PilotStatus.INJURED)
         self.assertEqual(pilot.assigned_mech, "Jenner JR7-D")
+
+    def test_from_dict_defaults(self):
+        """MechWarrior from_dict uses defaults for missing optional fields."""
+        d = {
+            "name": "Test Pilot",
+            "callsign": "Test",
+            "gunnery": 4,
+            "piloting": 4,
+            "status": "Active",
+        }
+        pilot = MechWarrior.from_dict(d)
+        self.assertEqual(pilot.morale, 75)
+        self.assertEqual(pilot.injuries, 0)
+        self.assertEqual(pilot.experience, 0)
+        self.assertIsNone(pilot.assigned_mech)
 
     def test_round_trip(self):
         """MechWarrior survives a to_dict/from_dict round trip."""
         original = self._make_pilot(
             status=PilotStatus.INJURED,
             assigned_mech="Catapult CPLT-C1",
+            morale=50,
+            injuries=2,
+            experience=500,
         )
         restored = MechWarrior.from_dict(original.to_dict())
         self.assertEqual(original, restored)
@@ -232,6 +300,23 @@ class TestMechWarrior(unittest.TestCase):
             restored = MechWarrior.from_dict(d)
             self.assertEqual(restored.status, status)
 
+    def test_morale_range(self):
+        """Morale can be set to boundary values (0 and 100)."""
+        pilot_low = self._make_pilot(morale=0)
+        self.assertEqual(pilot_low.morale, 0)
+        pilot_high = self._make_pilot(morale=100)
+        self.assertEqual(pilot_high.morale, 100)
+
+    def test_injuries_tracking(self):
+        """Injuries field tracks pilot injury count."""
+        pilot = self._make_pilot(injuries=3)
+        self.assertEqual(pilot.injuries, 3)
+
+    def test_experience_tracking(self):
+        """Experience field tracks accumulated XP."""
+        pilot = self._make_pilot(experience=1500)
+        self.assertEqual(pilot.experience, 1500)
+
 
 class TestCompany(unittest.TestCase):
     """Tests for the Company dataclass."""
@@ -240,7 +325,7 @@ class TestCompany(unittest.TestCase):
         """Helper to create a company with sensible defaults."""
         defaults = {
             "name": "Wolf's Dragoons",
-            "c_bills": 2_000_000,
+            "c_bills": 500_000,
             "reputation": 15,
             "mechwarriors": [],
             "mechs": [],
@@ -252,7 +337,7 @@ class TestCompany(unittest.TestCase):
         """Company can be created with all required fields."""
         company = self._make_company()
         self.assertEqual(company.name, "Wolf's Dragoons")
-        self.assertEqual(company.c_bills, 2_000_000)
+        self.assertEqual(company.c_bills, 500_000)
         self.assertEqual(company.reputation, 15)
         self.assertEqual(company.mechwarriors, [])
         self.assertEqual(company.mechs, [])
@@ -260,7 +345,7 @@ class TestCompany(unittest.TestCase):
     def test_default_values(self):
         """Company defaults to correct starting values."""
         company = Company(name="Test Company")
-        self.assertEqual(company.c_bills, 2_000_000)
+        self.assertEqual(company.c_bills, 500_000)
         self.assertEqual(company.reputation, 15)
         self.assertEqual(company.mechwarriors, [])
         self.assertEqual(company.mechs, [])
@@ -270,7 +355,7 @@ class TestCompany(unittest.TestCase):
         company = self._make_company()
         d = company.to_dict()
         self.assertEqual(d["name"], "Wolf's Dragoons")
-        self.assertEqual(d["c_bills"], 2_000_000)
+        self.assertEqual(d["c_bills"], 500_000)
         self.assertEqual(d["reputation"], 15)
         self.assertEqual(d["mechwarriors"], [])
         self.assertEqual(d["mechs"], [])
@@ -283,7 +368,10 @@ class TestCompany(unittest.TestCase):
             tonnage=55,
             armor_current=136,
             armor_max=136,
+            structure_current=48,
+            structure_max=48,
             firepower=6,
+            speed=6,
         )
         pilot = MechWarrior(
             name="Alex Steiner",
@@ -311,6 +399,9 @@ class TestCompany(unittest.TestCase):
                     "callsign": "Ghost",
                     "gunnery": 3,
                     "piloting": 3,
+                    "morale": 80,
+                    "injuries": 0,
+                    "experience": 100,
                     "status": "Active",
                     "assigned_mech": None,
                 }
@@ -322,7 +413,10 @@ class TestCompany(unittest.TestCase):
                     "tonnage": 100,
                     "armor_current": 304,
                     "armor_max": 304,
+                    "structure_current": 80,
+                    "structure_max": 80,
                     "firepower": 10,
+                    "speed": 2,
                     "status": "Ready",
                 }
             ],
@@ -344,7 +438,10 @@ class TestCompany(unittest.TestCase):
             tonnage=50,
             armor_current=100,
             armor_max=120,
+            structure_current=35,
+            structure_max=44,
             firepower=7,
+            speed=5,
             status=MechStatus.DAMAGED,
         )
         pilot = MechWarrior(
@@ -352,6 +449,9 @@ class TestCompany(unittest.TestCase):
             callsign="Blaze",
             gunnery=3,
             piloting=5,
+            morale=60,
+            injuries=1,
+            experience=300,
             status=PilotStatus.INJURED,
             assigned_mech="Hunchback HBK-4G",
         )
@@ -393,7 +493,15 @@ class TestMechTemplates(unittest.TestCase):
         self.assertEqual(mech.name, "Wolverine WVR-6R")
         self.assertEqual(mech.weight_class, WeightClass.MEDIUM)
         self.assertEqual(mech.armor_current, mech.armor_max)
+        self.assertEqual(mech.structure_current, mech.structure_max)
         self.assertEqual(mech.status, MechStatus.READY)
+
+    def test_create_mech_has_speed(self):
+        """create_mech_from_template includes speed rating."""
+        mech = create_mech_from_template("Commando COM-2D")
+        self.assertIsInstance(mech.speed, int)
+        self.assertGreaterEqual(mech.speed, 1)
+        self.assertLessEqual(mech.speed, 10)
 
     def test_create_mech_invalid_key(self):
         """create_mech_from_template raises KeyError for unknown key."""
@@ -401,12 +509,21 @@ class TestMechTemplates(unittest.TestCase):
             create_mech_from_template("Nonexistent Mech")
 
     def test_starting_lance_composition(self):
-        """Starting lance has 4 mechs: 2 medium and 2 light."""
+        """Starting lance has 4 mechs: 3 medium and 1 light."""
         lance = create_starting_lance()
         self.assertEqual(len(lance), 4)
         weight_classes = [m.weight_class for m in lance]
-        self.assertEqual(weight_classes.count(WeightClass.MEDIUM), 2)
-        self.assertEqual(weight_classes.count(WeightClass.LIGHT), 2)
+        self.assertEqual(weight_classes.count(WeightClass.MEDIUM), 3)
+        self.assertEqual(weight_classes.count(WeightClass.LIGHT), 1)
+
+    def test_starting_lance_specific_mechs(self):
+        """Starting lance contains the issue-specified mechs."""
+        lance = create_starting_lance()
+        names = [m.name for m in lance]
+        self.assertIn("Wolverine WVR-6R", names)
+        self.assertIn("Shadow Hawk SHD-2H", names)
+        self.assertIn("Hunchback HBK-4G", names)
+        self.assertIn("Commando COM-2D", names)
 
     def test_starting_lance_all_ready(self):
         """All starting lance mechs are at full armor and Ready status."""
@@ -414,12 +531,70 @@ class TestMechTemplates(unittest.TestCase):
         for mech in lance:
             self.assertEqual(mech.status, MechStatus.READY)
             self.assertEqual(mech.armor_current, mech.armor_max)
+            self.assertEqual(mech.structure_current, mech.structure_max)
 
     def test_template_firepower_range(self):
         """All template firepower ratings are between 1 and 10."""
         for key, tmpl in MECH_TEMPLATES.items():
             self.assertGreaterEqual(tmpl["firepower"], 1, f"{key} firepower too low")
             self.assertLessEqual(tmpl["firepower"], 10, f"{key} firepower too high")
+
+    def test_template_speed_range(self):
+        """All template speed ratings are between 1 and 10."""
+        for key, tmpl in MECH_TEMPLATES.items():
+            self.assertGreaterEqual(tmpl["speed"], 1, f"{key} speed too low")
+            self.assertLessEqual(tmpl["speed"], 10, f"{key} speed too high")
+
+    def test_templates_have_structure(self):
+        """All templates include structure_max."""
+        for key, tmpl in MECH_TEMPLATES.items():
+            self.assertIn("structure_max", tmpl, f"{key} missing structure_max")
+            self.assertGreater(tmpl["structure_max"], 0, f"{key} structure_max must be positive")
+
+
+class TestStartingPilots(unittest.TestCase):
+    """Tests for the hardcoded starting pilot roster."""
+
+    def test_starting_pilots_count(self):
+        """There are exactly 4 starting pilot definitions."""
+        self.assertEqual(len(STARTING_PILOTS), 4)
+
+    def test_starting_pilots_callsigns(self):
+        """Starting pilots have the issue-specified callsigns."""
+        callsigns = [p["callsign"] for p in STARTING_PILOTS]
+        self.assertIn("Ace", callsigns)
+        self.assertIn("Raven", callsigns)
+        self.assertIn("Bulldog", callsigns)
+        self.assertIn("Ghost", callsigns)
+
+    def test_create_starting_pilots(self):
+        """create_starting_pilots returns 4 MechWarrior instances."""
+        pilots = create_starting_pilots()
+        self.assertEqual(len(pilots), 4)
+        for pilot in pilots:
+            self.assertIsInstance(pilot, MechWarrior)
+            self.assertEqual(pilot.status, PilotStatus.ACTIVE)
+
+    def test_starting_pilot_skills(self):
+        """Starting pilots have valid gunnery and piloting skills (1-6)."""
+        pilots = create_starting_pilots()
+        for pilot in pilots:
+            self.assertIn(pilot.gunnery, range(1, 7))
+            self.assertIn(pilot.piloting, range(1, 7))
+
+    def test_starting_pilots_unique_callsigns(self):
+        """Starting pilots have unique callsigns."""
+        pilots = create_starting_pilots()
+        callsigns = [p.callsign for p in pilots]
+        self.assertEqual(len(callsigns), len(set(callsigns)))
+
+    def test_starting_pilots_default_morale(self):
+        """Starting pilots have default morale of 75."""
+        pilots = create_starting_pilots()
+        for pilot in pilots:
+            self.assertEqual(pilot.morale, 75)
+            self.assertEqual(pilot.injuries, 0)
+            self.assertEqual(pilot.experience, 0)
 
 
 class TestNameGeneration(unittest.TestCase):
@@ -455,6 +630,12 @@ class TestNameGeneration(unittest.TestCase):
         self.assertIn(pilot.piloting, range(1, 7))
         self.assertEqual(pilot.status, PilotStatus.ACTIVE)
         self.assertIsNone(pilot.assigned_mech)
+
+    def test_generate_mechwarrior_has_morale(self):
+        """Generated MechWarrior has morale in valid range."""
+        pilot = generate_mechwarrior()
+        self.assertGreaterEqual(pilot.morale, 0)
+        self.assertLessEqual(pilot.morale, 100)
 
     def test_generate_roster_count(self):
         """Roster generation creates the requested number of pilots."""

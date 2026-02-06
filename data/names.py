@@ -102,6 +102,7 @@ def generate_mechwarrior(used_callsigns: set = None) -> MechWarrior:
         callsign=callsign,
         gunnery=random.randint(3, 5),
         piloting=random.randint(3, 5),
+        morale=random.randint(60, 85),
     )
 
 

@@ -120,7 +120,12 @@ def draw_table_row(win, y, x, columns, col_widths, attr=0):
 def draw_roster_table(win, start_y, company):
     """Draw the company roster summary showing mechs and pilots.
 
-    Displays two tables: one for the mech bay and one for the pilot roster.
+    Displays a combined lance roster table with mech info and assigned
+    pilot info side by side, followed by armor percentage and damage
+    indicators.
+
+    Damaged mechs show a [!] warning indicator and are colored red.
+    Destroyed mechs show a [X] indicator.
 
     Args:
         win: curses window to draw on.
@@ -131,6 +136,12 @@ def draw_roster_table(win, start_y, company):
         The next available row after the roster display.
     """
     max_h, max_w = win.getmaxyx()
+
+    # Build a lookup of pilot callsigns by assigned mech name
+    pilot_by_mech = {}
+    for mw in company.mechwarriors:
+        if mw.assigned_mech:
+            pilot_by_mech[mw.assigned_mech] = mw
 
     # ── Company Header ──
     row = start_y
@@ -149,20 +160,20 @@ def draw_roster_table(win, start_y, company):
     draw_centered_text(win, row, stats_text, color_text(COLOR_ACCENT))
     row += 2
 
-    # ── Mech Bay Table ──
-    mech_col_widths = [24, 8, 6, 10, 5, 8]
-    mech_headers = ["MECH", "CLASS", "TONS", "ARMOR", "FP", "STATUS"]
-    table_width = sum(mech_col_widths) + len(mech_col_widths) - 1
+    # ── Lance Roster Table (combined mech + pilot view) ──
+    lance_col_widths = [22, 6, 8, 10, 4, 5, 8]
+    lance_headers = ["MECH", "TONS", "PILOT", "ARMOR %", "GUN", "PLT", "STATUS"]
+    table_width = sum(lance_col_widths) + len(lance_col_widths) - 1
     table_x = max(1, (max_w - table_width) // 2)
 
     draw_centered_text(
-        win, row, "--- MECH BAY ---",
+        win, row, "--- LANCE ROSTER ---",
         color_text(COLOR_BORDER) | curses.A_BOLD,
     )
     row += 1
 
     draw_table_row(
-        win, row, table_x, mech_headers, mech_col_widths,
+        win, row, table_x, lance_headers, lance_col_widths,
         color_text(COLOR_STATUS) | curses.A_BOLD,
     )
     row += 1
@@ -177,23 +188,109 @@ def draw_roster_table(win, start_y, company):
     row += 1
 
     for mech in company.mechs:
+        pilot = pilot_by_mech.get(mech.name)
+        pilot_callsign = pilot.callsign if pilot else "---"
+        pilot_gun = str(pilot.gunnery) if pilot else "-"
+        pilot_plt = str(pilot.piloting) if pilot else "-"
+
+        # Calculate armor percentage
+        armor_pct = int((mech.armor_current / mech.armor_max) * 100) if mech.armor_max > 0 else 0
+        armor_str = f"{armor_pct}%"
+
+        # Status with damage indicator
+        if mech.status.value == "Destroyed":
+            status_str = "[X] DEST"
+        elif mech.status.value == "Damaged":
+            status_str = "[!] DMG"
+        else:
+            status_str = "Ready"
+
+        cols = [
+            mech.name,
+            str(mech.tonnage),
+            pilot_callsign,
+            armor_str,
+            pilot_gun,
+            pilot_plt,
+            status_str,
+        ]
+
+        # Color based on mech status
+        if mech.status.value == "Destroyed":
+            row_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+        elif mech.status.value == "Damaged":
+            row_attr = color_text(COLOR_WARNING)
+        else:
+            row_attr = color_text(COLOR_ACCENT)
+
+        draw_table_row(win, row, table_x, cols, lance_col_widths, row_attr)
+        row += 1
+
+    row += 1
+
+    # ── Mech Bay Detail Table ──
+    mech_col_widths = [22, 8, 6, 10, 10, 4, 4, 8]
+    mech_headers = ["MECH", "CLASS", "TONS", "ARMOR", "STRUCT", "FP", "SPD", "STATUS"]
+    mech_table_width = sum(mech_col_widths) + len(mech_col_widths) - 1
+    mech_table_x = max(1, (max_w - mech_table_width) // 2)
+
+    draw_centered_text(
+        win, row, "--- MECH BAY ---",
+        color_text(COLOR_BORDER) | curses.A_BOLD,
+    )
+    row += 1
+
+    draw_table_row(
+        win, row, mech_table_x, mech_headers, mech_col_widths,
+        color_text(COLOR_STATUS) | curses.A_BOLD,
+    )
+    row += 1
+
+    try:
+        sep = "-" * mech_table_width
+        sep_x = max(1, (max_w - len(sep)) // 2)
+        win.addstr(row, sep_x, sep, color_text(COLOR_BORDER))
+    except curses.error:
+        pass
+    row += 1
+
+    for mech in company.mechs:
         armor_str = f"{mech.armor_current}/{mech.armor_max}"
+        struct_str = f"{mech.structure_current}/{mech.structure_max}"
+
+        # Status with damage indicator
+        if mech.status.value == "Destroyed":
+            status_str = "[X] DEST"
+        elif mech.status.value == "Damaged":
+            status_str = "[!] DMG"
+        else:
+            status_str = "Ready"
+
         cols = [
             mech.name,
             mech.weight_class.value,
             str(mech.tonnage),
             armor_str,
+            struct_str,
             str(mech.firepower),
-            mech.status.value,
+            str(mech.speed),
+            status_str,
         ]
-        status_attr = color_text(COLOR_ACCENT) if mech.status.value == "Ready" else color_text(COLOR_WARNING)
-        draw_table_row(win, row, table_x, cols, mech_col_widths, status_attr)
+
+        if mech.status.value == "Destroyed":
+            row_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+        elif mech.status.value == "Damaged":
+            row_attr = color_text(COLOR_WARNING)
+        else:
+            row_attr = color_text(COLOR_ACCENT)
+
+        draw_table_row(win, row, mech_table_x, cols, mech_col_widths, row_attr)
         row += 1
 
     row += 1
 
     # ── Pilot Roster Table ──
-    pilot_col_widths = [20, 12, 4, 4, 8, 24]
+    pilot_col_widths = [18, 10, 4, 4, 8, 22]
     pilot_headers = ["NAME", "CALLSIGN", "GUN", "PLT", "STATUS", "ASSIGNED MECH"]
     pilot_table_width = sum(pilot_col_widths) + len(pilot_col_widths) - 1
     pilot_table_x = max(1, (max_w - pilot_table_width) // 2)
@@ -228,7 +325,14 @@ def draw_roster_table(win, start_y, company):
             mw.status.value,
             assigned,
         ]
-        draw_table_row(win, row, pilot_table_x, cols, pilot_col_widths, color_text(COLOR_MENU_INACTIVE))
+        # Color injured/KIA pilots with warning color
+        if mw.status.value == "KIA":
+            pilot_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+        elif mw.status.value == "Injured":
+            pilot_attr = color_text(COLOR_WARNING)
+        else:
+            pilot_attr = color_text(COLOR_MENU_INACTIVE)
+        draw_table_row(win, row, pilot_table_x, cols, pilot_col_widths, pilot_attr)
         row += 1
 
     return row

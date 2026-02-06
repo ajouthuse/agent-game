@@ -18,8 +18,10 @@ from data.models import (
 from data.mechs import (
     MECH_TEMPLATES,
     STARTING_LANCE_KEYS,
+    STARTING_PILOTS,
     create_mech_from_template,
     create_starting_lance,
+    create_starting_pilots,
 )
 from data.names import (
     generate_name,
@@ -39,8 +41,10 @@ __all__ = [
     # Mechs
     "MECH_TEMPLATES",
     "STARTING_LANCE_KEYS",
+    "STARTING_PILOTS",
     "create_mech_from_template",
     "create_starting_lance",
+    "create_starting_pilots",
     # Names
     "generate_name",
     "generate_callsign",

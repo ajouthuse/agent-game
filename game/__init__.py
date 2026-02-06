@@ -13,6 +13,7 @@ from game.scenes import (
     CompanyNameScene,
     RosterSummaryScene,
     HQScene,
+    RosterScene,
 )
 from game.state import GameState
 
@@ -22,5 +23,6 @@ __all__ = [
     "CompanyNameScene",
     "RosterSummaryScene",
     "HQScene",
+    "RosterScene",
     "GameState",
 ]

@@ -6,6 +6,7 @@ Submodules:
     mechs     - BattleMech template catalog and starting lance generation.
     names     - Random MechWarrior name and callsign generation.
     contracts - Contract templates and market generation.
+    combat    - Auto-resolved combat and mission outcome system.
 """
 
 from data.models import (
@@ -37,6 +38,18 @@ from data.contracts import (
     EMPLOYERS,
     generate_contracts,
 )
+from data.combat import (
+    CombatOutcome,
+    MechDamageReport,
+    PilotInjuryReport,
+    MissionResult,
+    calculate_lance_power,
+    calculate_success_chance,
+    generate_combat_events,
+    apply_damage,
+    calculate_rewards,
+    resolve_combat,
+)
 
 __all__ = [
     # Models
@@ -64,4 +77,15 @@ __all__ = [
     "CONTRACT_TEMPLATES",
     "EMPLOYERS",
     "generate_contracts",
+    # Combat
+    "CombatOutcome",
+    "MechDamageReport",
+    "PilotInjuryReport",
+    "MissionResult",
+    "calculate_lance_power",
+    "calculate_success_chance",
+    "generate_combat_events",
+    "apply_damage",
+    "calculate_rewards",
+    "resolve_combat",
 ]

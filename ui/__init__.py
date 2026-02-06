@@ -36,6 +36,7 @@ from ui.widgets import (
     draw_title_art,
     draw_contract_list,
     draw_contract_briefing,
+    draw_mission_report,
     TITLE_ART,
 )
 
@@ -64,5 +65,6 @@ __all__ = [
     "draw_title_art",
     "draw_contract_list",
     "draw_contract_briefing",
+    "draw_mission_report",
     "TITLE_ART",
 ]

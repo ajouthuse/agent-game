@@ -1,9 +1,7 @@
 """
-game.py - Game state and scene management for Iron Contract.
+game.scenes - Concrete scene implementations for Iron Contract.
 
 Provides:
-- Scene: Base class for all game scenes (menus, gameplay screens, etc.)
-- GameState: Manages a stack of scenes and drives the main game loop.
 - MainMenuScene: The main menu with New Game / Quit options.
 - CompanyNameScene: Text input screen for naming the mercenary company.
 - RosterSummaryScene: Displays the newly created company roster.
@@ -13,50 +11,8 @@ Provides:
 import curses
 
 import ui
-from data import create_starting_lance
-from models import Company
-from names import generate_mechwarrior_roster
-
-
-# ── Scene Base Class ────────────────────────────────────────────────────────
-
-class Scene:
-    """Base class for a game scene.
-
-    Subclasses must override handle_input() and draw() at minimum.
-    """
-
-    def __init__(self, game_state):
-        """Initialize the scene with a reference to the parent GameState.
-
-        Args:
-            game_state: The GameState instance managing this scene.
-        """
-        self.game_state = game_state
-
-    def on_enter(self):
-        """Called when this scene becomes the active scene."""
-        pass
-
-    def on_exit(self):
-        """Called when this scene is removed from the stack."""
-        pass
-
-    def handle_input(self, key):
-        """Process a single key press.
-
-        Args:
-            key: The curses key code or character ordinal.
-        """
-        pass
-
-    def draw(self, win):
-        """Render the scene to the given curses window.
-
-        Args:
-            win: The curses standard screen window.
-        """
-        pass
+from data import Company, create_starting_lance, generate_mechwarrior_roster
+from game.scene import Scene
 
 
 # ── Main Menu Scene ─────────────────────────────────────────────────────────
@@ -393,89 +349,3 @@ def _create_new_company(name):
         mechwarriors=pilots,
         mechs=mechs,
     )
-
-
-# ── Game State Manager ──────────────────────────────────────────────────────
-
-class GameState:
-    """Manages the game loop and a stack of scenes.
-
-    The scene stack allows pushing new scenes on top (e.g., submenus,
-    gameplay screens) and popping back to previous ones.
-
-    Attributes:
-        running: Whether the game loop should continue.
-        company: The player's Company instance (None until created).
-    """
-
-    def __init__(self):
-        self.running = True
-        self.company = None
-        self._scene_stack = []
-
-    @property
-    def current_scene(self):
-        """Return the scene on top of the stack, or None if empty."""
-        return self._scene_stack[-1] if self._scene_stack else None
-
-    def push_scene(self, scene):
-        """Push a new scene onto the stack and activate it.
-
-        Args:
-            scene: A Scene instance to make active.
-        """
-        self._scene_stack.append(scene)
-        scene.on_enter()
-
-    def pop_scene(self):
-        """Remove the top scene from the stack.
-
-        Returns:
-            The removed Scene instance, or None if the stack was empty.
-        """
-        if self._scene_stack:
-            scene = self._scene_stack.pop()
-            scene.on_exit()
-            if self.current_scene:
-                self.current_scene.on_enter()
-            return scene
-        return None
-
-    def run(self, stdscr):
-        """Main game loop. Called from within curses.wrapper().
-
-        Args:
-            stdscr: The curses standard screen window.
-        """
-        # Terminal setup
-        curses.curs_set(0)          # Hide cursor
-        stdscr.nodelay(False)       # Blocking input (wait for key)
-        stdscr.timeout(100)         # Refresh every 100ms for responsiveness
-        ui.init_colors()
-
-        # Start with the main menu
-        self.push_scene(MainMenuScene(self))
-
-        while self.running:
-            # Draw current scene
-            stdscr.erase()
-            scene = self.current_scene
-            if scene is None:
-                break
-            scene.draw(stdscr)
-            stdscr.refresh()
-
-            # Handle input
-            try:
-                key = stdscr.getch()
-            except curses.error:
-                continue
-
-            if key == -1:
-                continue  # Timeout, no key pressed
-
-            scene.handle_input(key)
-
-            # If all scenes popped, exit
-            if not self._scene_stack:
-                self.running = False

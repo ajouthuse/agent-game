@@ -1,5 +1,5 @@
 """
-names.py - Random MechWarrior name and callsign generation for Iron Contract.
+data.names - Random MechWarrior name and callsign generation for Iron Contract.
 
 Provides curated lists of first names, last names, and callsigns used to
 generate randomized MechWarrior identities during company creation and
@@ -8,7 +8,7 @@ recruitment.
 
 import random
 
-from models import MechWarrior
+from data.models import MechWarrior
 
 
 # ── Name Lists ────────────────────────────────────────────────────────────

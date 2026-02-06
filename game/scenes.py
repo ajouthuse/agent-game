@@ -5,13 +5,17 @@ Provides:
 - MainMenuScene: The main menu with New Game / Quit options.
 - CompanyNameScene: Text input screen for naming the mercenary company.
 - RosterSummaryScene: Displays the newly created company roster.
-- HQScene: Placeholder headquarters screen (post-company-creation).
+- HQScene: Headquarters hub with contract market and roster access.
+- RosterScene: Full company roster view.
+- ContractMarketScene: Contract market with selectable contracts.
+- ContractBriefingScene: Detailed briefing for a selected contract.
 """
 
 import curses
 
 import ui
 from data import Company, create_starting_lance, create_starting_pilots
+from data.contracts import generate_contracts
 from game.scene import Scene
 
 
@@ -256,10 +260,10 @@ class HQScene(Scene):
     """Headquarters hub screen shown after company creation.
 
     Serves as the main gameplay dashboard with menu options including
-    viewing the company roster.
+    viewing the company roster and accessing the contract market.
     """
 
-    MENU_OPTIONS = ["View Roster", "Quit"]
+    MENU_OPTIONS = ["Contract Market", "View Roster", "Quit"]
 
     def __init__(self, game_state):
         super().__init__(game_state)
@@ -283,7 +287,9 @@ class HQScene(Scene):
     def _select_option(self):
         """Execute the currently highlighted menu option."""
         choice = self.MENU_OPTIONS[self.selected]
-        if choice == "View Roster":
+        if choice == "Contract Market":
+            self.game_state.push_scene(ContractMarketScene(self.game_state))
+        elif choice == "View Roster":
             self.game_state.push_scene(RosterScene(self.game_state))
         elif choice == "Quit":
             self.game_state.running = False
@@ -305,7 +311,7 @@ class HQScene(Scene):
 
         # Box
         box_w = 50
-        box_h = 13
+        box_h = 15
         box_x = (max_w - box_w) // 2
         box_y = center_y - 4
         ui.draw_box(win, box_y, box_x, box_h, box_w, title="Headquarters")
@@ -335,9 +341,16 @@ class HQScene(Scene):
                 stats,
                 ui.color_text(ui.COLOR_MENU_INACTIVE),
             )
+            month_str = f"Month: {company.week}"
+            ui.draw_centered_text(
+                win,
+                center_y + 2,
+                month_str,
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
 
         # Menu options
-        menu_y = center_y + 4
+        menu_y = center_y + 5
         ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
 
 
@@ -386,6 +399,169 @@ class RosterScene(Scene):
 
         # Draw the roster tables
         ui.draw_roster_table(win, start_y + 1, company)
+
+
+# ── Contract Market Scene ─────────────────────────────────────────────────
+
+class ContractMarketScene(Scene):
+    """Contract market screen showing available contracts.
+
+    Generates 3 random contracts scaled to the current month and displays
+    them in a navigable list. The player can select a contract to view
+    its detailed briefing.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.selected = 0
+        month = game_state.company.week if game_state.company else 1
+        self.contracts = generate_contracts(month)
+
+    def handle_input(self, key):
+        """Navigate the contract list and select contracts.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % len(self.contracts)
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % len(self.contracts)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            # Open briefing for the selected contract
+            contract = self.contracts[self.selected]
+            self.game_state.push_scene(
+                ContractBriefingScene(self.game_state, contract)
+            )
+        elif key == 27:  # Escape - return to HQ
+            self.game_state.pop_scene()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def draw(self, win):
+        """Render the contract market screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - CONTRACT MARKET")
+        ui.draw_status_bar(
+            win,
+            "Up/Down: Browse | Enter: View Briefing | Esc: Back to HQ"
+        )
+
+        row = 2
+
+        # Title
+        ui.draw_centered_text(
+            win, row,
+            "AVAILABLE CONTRACTS",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 1
+
+        if company:
+            month_str = f"Month {company.week} | C-Bills: {company.c_bills:,}"
+            ui.draw_centered_text(
+                win, row, month_str,
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+        row += 2
+
+        # Draw the contract list
+        row = ui.draw_contract_list(win, row, self.contracts, self.selected)
+
+        row += 2
+
+        # Hint
+        ui.draw_centered_text(
+            win, row,
+            "Select a contract to view the mission briefing.",
+            ui.color_text(ui.COLOR_MENU_INACTIVE),
+        )
+
+
+# ── Contract Briefing Scene ──────────────────────────────────────────────
+
+class ContractBriefingScene(Scene):
+    """Detailed contract briefing screen.
+
+    Shows full contract details including flavor text and payout terms.
+    The player can confirm acceptance or go back to the contract market.
+    """
+
+    MENU_OPTIONS = ["Accept Contract", "Go Back"]
+
+    def __init__(self, game_state, contract):
+        super().__init__(game_state)
+        self.contract = contract
+        self.selected = 0
+
+    def handle_input(self, key):
+        """Navigate briefing options. Accept or go back.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % len(self.MENU_OPTIONS)
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % len(self.MENU_OPTIONS)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._select_option()
+        elif key == 27:  # Escape - go back
+            self.game_state.pop_scene()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _select_option(self):
+        """Execute the currently highlighted option."""
+        choice = self.MENU_OPTIONS[self.selected]
+        if choice == "Accept Contract":
+            self._accept_contract()
+        elif choice == "Go Back":
+            self.game_state.pop_scene()
+
+    def _accept_contract(self):
+        """Accept the contract and return to HQ.
+
+        Adds the payout to the company's C-Bills, increments the
+        contracts completed counter, and advances the month.
+        """
+        company = self.game_state.company
+        if company:
+            company.c_bills += self.contract.payout
+            company.contracts_completed += 1
+            company.week += 1
+
+        # Pop briefing and market scenes to return to HQ
+        self.game_state.pop_scene()  # Pop briefing
+        self.game_state.pop_scene()  # Pop market
+
+    def draw(self, win):
+        """Render the contract briefing screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - MISSION BRIEFING")
+        ui.draw_status_bar(
+            win,
+            "Up/Down: Navigate | Enter: Select | Esc: Back"
+        )
+
+        # Draw the contract briefing
+        row = 2
+        row = ui.draw_contract_briefing(win, row, self.contract)
+
+        # Draw the accept/go back menu
+        menu_y = min(row + 1, max_h - 5)
+        ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
 
 
 # ── Company Creation Helper ──────────────────────────────────────────────

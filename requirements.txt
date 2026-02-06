@@ -1,0 +1,4 @@
+# Iron Contract - Dependencies
+# curses is part of the Python standard library on Unix/macOS.
+# On Windows, install windows-curses:
+windows-curses>=2.0; sys_platform == "win32"

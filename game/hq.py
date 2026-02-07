@@ -105,6 +105,7 @@ def advance_week(company):
                     )
             else:
                 # Damaged but not being repaired
+                summary["repairs_progressed"].append(mech.name)
                 summary["status_changes"].append(
                     f"{mech.name}: Damaged - awaiting repair orders"
                 )

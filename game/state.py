@@ -116,10 +116,29 @@ class GameState:
         self.push_scene(MainMenuScene(self))
 
         while self.running:
-            # Draw current scene
             stdscr.erase()
 
-            # Handle terminal resize
+            # Check minimum terminal size
+            if self._draw_size_warning(stdscr):
+                stdscr.refresh()
+                try:
+                    key = stdscr.getch()
+                except curses.error:
+                    continue
+                if key == curses.KEY_RESIZE:
+                    self._handle_resize(stdscr)
+                elif key in (ord("q"), ord("Q")):
+                    self.running = False
+                continue
+
+            # Draw current scene before waiting for input
+            scene = self.current_scene
+            if scene is None:
+                break
+            scene.draw(stdscr)
+            stdscr.refresh()
+
+            # Now wait for input
             try:
                 key = stdscr.getch()
             except curses.error:
@@ -128,22 +147,6 @@ class GameState:
             if key == curses.KEY_RESIZE:
                 self._handle_resize(stdscr)
                 continue
-
-            # Check minimum terminal size
-            if self._draw_size_warning(stdscr):
-                stdscr.refresh()
-                if key == -1:
-                    continue
-                # Still allow quit when terminal is too small
-                if key in (ord("q"), ord("Q")):
-                    self.running = False
-                continue
-
-            scene = self.current_scene
-            if scene is None:
-                break
-            scene.draw(stdscr)
-            stdscr.refresh()
 
             if key == -1:
                 continue  # Timeout, no key pressed

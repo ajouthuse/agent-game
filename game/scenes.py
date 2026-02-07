@@ -1764,7 +1764,7 @@ class BattleDeploymentScene(Scene):
 
         ui.draw_centered_text(
             win, row, "YOUR LANCE",
-            ui.color_text(ui.COLOR_SUCCESS) | curses.A_BOLD,
+            ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD,
         )
         row += 1
 
@@ -1781,19 +1781,19 @@ class BattleDeploymentScene(Scene):
                     deployed_count += 1
                     armor_pct = int(100 * mech.armor_current / mech.armor_max) if mech.armor_max > 0 else 0
                     line = f'  [{deployed_count}] {mech.name} | Pilot: "{pilot.callsign}" | Armor: {armor_pct}%'
-                    ui.draw_centered_text(win, row, line, ui.color_text(ui.COLOR_TEXT))
+                    ui.draw_centered_text(win, row, line, ui.color_text(ui.COLOR_NORMAL))
                     row += 1
 
         row += 1
         ui.draw_centered_text(
             win, row, "ENEMY FORCE (ESTIMATED)",
-            ui.color_text(ui.COLOR_DANGER) | curses.A_BOLD,
+            ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD,
         )
         row += 1
 
         for i, enemy in enumerate(self.enemy_mechs, 1):
             line = f"  [{i}] {enemy.name} | {enemy.weight_class.value} | Threat Level: {enemy.firepower}"
-            ui.draw_centered_text(win, row, line, ui.color_text(ui.COLOR_TEXT))
+            ui.draw_centered_text(win, row, line, ui.color_text(ui.COLOR_NORMAL))
             row += 1
 
         row += 2
@@ -1886,13 +1886,13 @@ class BattleSimulationScene(Scene):
             if row >= max_h - 4:
                 break
 
-            color = ui.color_text(ui.COLOR_TEXT)
+            color = ui.color_text(ui.COLOR_NORMAL)
             if "DESTROYED" in line or "KIA" in line:
-                color = ui.color_text(ui.COLOR_DANGER) | curses.A_BOLD
+                color = ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD
             elif "VICTORY" in line:
-                color = ui.color_text(ui.COLOR_SUCCESS) | curses.A_BOLD
+                color = ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD
             elif "DEFEAT" in line:
-                color = ui.color_text(ui.COLOR_DANGER) | curses.A_BOLD
+                color = ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD
             elif line.startswith("---") or line.startswith("═"):
                 color = ui.color_text(ui.COLOR_MENU_INACTIVE) | curses.A_BOLD
 
@@ -1998,7 +1998,7 @@ class VictoryScene(Scene):
 
         # Victory message
         title_attr = ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD
-        success_attr = ui.color_text(ui.COLOR_SUCCESS) | curses.A_BOLD
+        success_attr = ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD
         
         victory_msg = "MISSION ACCOMPLISHED!"
         try:
@@ -2021,7 +2021,7 @@ class VictoryScene(Scene):
         for line in congrats_lines:
             try:
                 if line:
-                    win.addstr(row, inner_x, line[:inner_w], ui.color_text(ui.COLOR_TEXT))
+                    win.addstr(row, inner_x, line[:inner_w], ui.color_text(ui.COLOR_NORMAL))
                 row += 1
             except curses.error:
                 pass

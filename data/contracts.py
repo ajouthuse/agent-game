@@ -323,3 +323,38 @@ def generate_contracts(month: int, count: int = 3) -> List[Contract]:
         contracts.append(contract)
 
     return contracts
+
+
+def generate_final_contract() -> Contract:
+    """Generate the special final contract that appears after month 12.
+
+    This is a campaign-ending contract with maximum difficulty and a
+    massive payout. Winning this contract triggers the victory screen.
+
+    Returns:
+        A special 5-skull final Contract instance.
+    """
+    return Contract(
+        employer="ComStar",
+        mission_type=MissionType.BASE_ASSAULT,
+        difficulty=5,
+        payout=2_000_000,
+        salvage_rights=75,
+        bonus_objective="Secure the LosTech cache intact.",
+        description=(
+            "PRIORITY ALPHA CONTRACT - CLASSIFIED\n\n"
+            "Commander, this is it. ComStar has discovered a Star League-era "
+            "weapons cache deep in the uncharted regions. Intelligence suggests "
+            "it's defended by a rogue military unit with assault-class mechs "
+            "and advanced technology.\n\n"
+            "Your company has proven its worth over the past year. This mission "
+            "will cement your legend across the Inner Sphere. The payout is "
+            "substantial, and salvage rights are generous.\n\n"
+            "Success means your company enters the history books. Failure... "
+            "well, we'll cross that bridge if we come to it.\n\n"
+            "Expect the fight of your life, Commander. Good hunting."
+        ),
+        duration=1,
+        weeks_remaining=0,
+        is_final_contract=True,
+    )

@@ -624,7 +624,19 @@ def resolve_combat(company: Company, contract: Contract) -> MissionResult:
 
     # Step 7: Update company tracking
     company.contracts_completed += 1
+    company.total_earnings += c_bills_earned
     company.week += 1
+    company.month = ((company.week - 1) // 4) + 1
+
+    # Count mechs and pilots lost in this battle
+    mechs_destroyed = sum(1 for m in company.mechs if m.status == MechStatus.DESTROYED)
+    pilots_kia = sum(1 for mw in company.mechwarriors if mw.status == PilotStatus.KIA)
+    company.mechs_lost += len([d for d in mech_damage if d["new_status"] == MechStatus.DESTROYED])
+    company.pilots_lost += len([i for i in pilot_injuries if i["new_status"] == PilotStatus.KIA])
+
+    # Check if this was the final contract
+    if contract.is_final_contract and outcome == CombatOutcome.VICTORY:
+        company.final_contract_completed = True
 
     # Step 8: Update reputation
     if outcome == CombatOutcome.VICTORY:

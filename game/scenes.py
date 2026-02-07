@@ -800,6 +800,14 @@ class MissionReportScene(Scene):
         """
         company = self.game_state.company
         if company:
+            # Check if this was the final contract and it was won
+            if self.contract.is_final_contract and company.final_contract_completed:
+                # Victory! Show victory screen
+                self.game_state.pop_scene()  # Pop mission report
+                from game.hq import VictoryScene
+                self.game_state.push_scene(VictoryScene(self.game_state))
+                return
+
             # Apply standardized morale outcome (in addition to combat system adjustments)
             apply_morale_outcome(company, self.result.outcome.value)
 

@@ -40,7 +40,8 @@ def advance_week(company):
     1. Deduct weekly overhead costs (payroll: 5,000 C-Bills per active MW)
     2. Progress any active repair timers by 1 week
     3. Progress any active contract timers by 1 week
-    4. Update week counter
+    4. Regenerate available contracts each week
+    5. Update week counter
 
     Args:
         company: The player's Company instance (modified in place).
@@ -56,6 +57,8 @@ def advance_week(company):
         - repairs_progressed: List of mech names with repair progress.
         - status_changes: List of string descriptions of status changes.
     """
+    from data.contracts import generate_contracts
+
     summary = {
         "week_before": company.week,
         "active_pilots": 0,
@@ -84,10 +87,19 @@ def advance_week(company):
                 f"{mech.name}: Repair in progress (still damaged)"
             )
 
-    # 3. Progress contract timers (placeholder for future implementation)
-    # Active contracts would tick down here when implemented.
+    # 3. Progress active contract timer
+    if company.active_contract:
+        company.active_contract.weeks_remaining -= 1
+        if company.active_contract.weeks_remaining <= 0:
+            summary["status_changes"].append(
+                f"Contract with {company.active_contract.employer} completed!"
+            )
+            company.active_contract = None
 
-    # 4. Update week counter
+    # 4. Regenerate available contracts each week
+    company.available_contracts = generate_contracts(company.week)
+
+    # 5. Update week counter
     company.week += 1
     summary["week_after"] = company.week
     summary["balance_after"] = company.c_bills
@@ -109,6 +121,16 @@ def get_status_text(company):
         A string describing the current company status.
     """
     parts = []
+
+    # Active contract status (most important, show first)
+    if company.active_contract:
+        contract = company.active_contract
+        parts.append(
+            f"Active: {contract.mission_type.value} for {contract.employer} "
+            f"({contract.weeks_remaining}w remaining)"
+        )
+    else:
+        parts.append("No active contract")
 
     # Check for damaged mechs
     damaged_mechs = [
@@ -142,9 +164,6 @@ def get_status_text(company):
         parts.append(f"{len(kia_pilots)} pilot(s) KIA")
     if injured_pilots:
         parts.append(f"{len(injured_pilots)} pilot(s) injured")
-
-    # No active contract (placeholder — contracts are not persistent yet)
-    parts.append("No active contract")
 
     return "STATUS: " + ". ".join(parts) + "."
 

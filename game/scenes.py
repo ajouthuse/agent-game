@@ -398,16 +398,20 @@ class RosterScene(Scene):
 class ContractMarketScene(Scene):
     """Contract market screen showing available contracts.
 
-    Generates 3 random contracts scaled to the current month and displays
-    them in a navigable list. The player can select a contract to view
-    its detailed briefing.
+    Displays the 3 available contracts from the company's contract market.
+    The player can select a contract to view its detailed briefing.
     """
 
     def __init__(self, game_state):
         super().__init__(game_state)
         self.selected = 0
-        month = game_state.company.week if game_state.company else 1
-        self.contracts = generate_contracts(month)
+        company = game_state.company
+
+        # Generate contracts if none exist (first time visiting)
+        if company and not company.available_contracts:
+            company.available_contracts = generate_contracts(company.week)
+
+        self.contracts = company.available_contracts if company else []
 
     def handle_input(self, key):
         """Navigate the contract list and select contracts.
@@ -483,14 +487,20 @@ class ContractBriefingScene(Scene):
 
     Shows full contract details including flavor text and payout terms.
     The player can confirm acceptance or go back to the contract market.
+    If a contract is already active, acceptance is disabled.
     """
-
-    MENU_OPTIONS = ["Accept Contract", "Go Back"]
 
     def __init__(self, game_state, contract):
         super().__init__(game_state)
         self.contract = contract
         self.selected = 0
+        self.can_accept = not (game_state.company and game_state.company.active_contract)
+
+        # Set menu options based on whether we can accept
+        if self.can_accept:
+            self.MENU_OPTIONS = ["Accept Contract", "Go Back"]
+        else:
+            self.MENU_OPTIONS = ["Go Back"]
 
     def handle_input(self, key):
         """Navigate briefing options. Accept or go back.
@@ -512,32 +522,43 @@ class ContractBriefingScene(Scene):
     def _select_option(self):
         """Execute the currently highlighted option."""
         choice = self.MENU_OPTIONS[self.selected]
-        if choice == "Accept Contract":
+        if choice == "Accept Contract" and self.can_accept:
             self._accept_contract()
         elif choice == "Go Back":
             self.game_state.pop_scene()
 
     def _accept_contract(self):
-        """Accept the contract and launch the mission.
+        """Accept the contract and set it as active.
 
-        Resolves combat using the auto-resolved combat system, then
-        pushes the MissionReportScene to display the results.
-        The briefing and market scenes are popped so that when the
-        report is dismissed, the player returns to HQ.
+        If a contract is already active, shows an error message.
+        Otherwise, sets the contract as active and initializes its duration countdown.
+        Then resolves combat and displays the mission report.
         """
         company = self.game_state.company
-        if company:
-            # Resolve combat (modifies company in place)
-            result = resolve_combat(company, self.contract)
+        if not company:
+            return
 
-            # Pop briefing and market scenes
-            self.game_state.pop_scene()  # Pop briefing
-            self.game_state.pop_scene()  # Pop market
+        # Check if a contract is already active
+        if company.active_contract:
+            # Cannot accept - show error (for now, just ignore)
+            # In a real implementation, we'd show a message to the user
+            return
 
-            # Push mission report scene
-            self.game_state.push_scene(
-                MissionReportScene(self.game_state, result, self.contract)
-            )
+        # Set this contract as active
+        self.contract.weeks_remaining = self.contract.duration
+        company.active_contract = self.contract
+
+        # Resolve combat (modifies company in place)
+        result = resolve_combat(company, self.contract)
+
+        # Pop briefing and market scenes
+        self.game_state.pop_scene()  # Pop briefing
+        self.game_state.pop_scene()  # Pop market
+
+        # Push mission report scene
+        self.game_state.push_scene(
+            MissionReportScene(self.game_state, result, self.contract)
+        )
 
     def draw(self, win):
         """Render the contract briefing screen.
@@ -556,6 +577,16 @@ class ContractBriefingScene(Scene):
         # Draw the contract briefing
         row = 2
         row = ui.draw_contract_briefing(win, row, self.contract)
+
+        # Show warning if contract already active
+        if not self.can_accept:
+            row += 1
+            ui.draw_centered_text(
+                win, row,
+                "!! CANNOT ACCEPT: A contract is already active !!",
+                ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD,
+            )
+            row += 1
 
         # Draw the accept/go back menu
         menu_y = min(row + 1, max_h - 5)

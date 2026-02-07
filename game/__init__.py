@@ -4,6 +4,7 @@ game - Game state, scene management, and gameplay logic for Iron Contract.
 Submodules:
     scene  - Base Scene class for all game screens.
     scenes - Concrete scene implementations (MainMenu, CompanyName, etc.).
+    hq     - HQ dashboard, turn cycle, and related scenes.
     state  - GameState manager with scene stack and main game loop.
 """
 
@@ -24,6 +25,13 @@ from game.scenes import (
     FinancialSummaryScene,
     GameOverScene,
 )
+from game.hq import (
+    WeeklySummaryScene,
+    QuitConfirmScene,
+    MechBayScene,
+    advance_week,
+    WEEKLY_PAYROLL_PER_PILOT,
+)
 from game.state import GameState
 
 __all__ = [
@@ -32,6 +40,11 @@ __all__ = [
     "CompanyNameScene",
     "RosterSummaryScene",
     "HQScene",
+    "WeeklySummaryScene",
+    "QuitConfirmScene",
+    "MechBayScene",
+    "advance_week",
+    "WEEKLY_PAYROLL_PER_PILOT",
     "RosterScene",
     "PilotDetailScene",
     "LevelUpScene",

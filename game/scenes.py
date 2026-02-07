@@ -5,7 +5,7 @@ Provides:
 - MainMenuScene: The main menu with New Game / Quit options.
 - CompanyNameScene: Text input screen for naming the mercenary company.
 - RosterSummaryScene: Displays the newly created company roster.
-- HQScene: Headquarters hub with contract market and roster access.
+- HQScene: Re-exported from game.hq (headquarters dashboard with turn cycle).
 - RosterScene: Full company roster view with pilot selection.
 - PilotDetailScene: Detailed view of a single pilot's stats and progression.
 - LevelUpScene: Skill improvement choice screen for leveling up.
@@ -280,103 +280,12 @@ class RosterSummaryScene(Scene):
 
 
 # ── HQ Scene (Hub / Dashboard) ───────────────────────────────────────────
+# The HQ dashboard and turn cycle system are implemented in game.hq.
+# HQScene is imported from there for backwards compatibility. It provides
+# letter-key navigation (C, R, M, A, Q), weekly advance with payroll,
+# and contextual status bar. See game/hq.py for full implementation.
 
-class HQScene(Scene):
-    """Headquarters hub screen shown after company creation.
-
-    Serves as the main gameplay dashboard with menu options including
-    viewing the company roster and accessing the contract market.
-    """
-
-    MENU_OPTIONS = ["Contract Market", "View Roster", "Quit"]
-
-    def __init__(self, game_state):
-        super().__init__(game_state)
-        self.selected = 0
-
-    def handle_input(self, key):
-        """Handle input at HQ with selectable menu.
-
-        Args:
-            key: The curses key code.
-        """
-        if key == curses.KEY_UP:
-            self.selected = (self.selected - 1) % len(self.MENU_OPTIONS)
-        elif key == curses.KEY_DOWN:
-            self.selected = (self.selected + 1) % len(self.MENU_OPTIONS)
-        elif key in (curses.KEY_ENTER, 10, 13):
-            self._select_option()
-        elif key in (ord("q"), ord("Q")):
-            self.game_state.running = False
-
-    def _select_option(self):
-        """Execute the currently highlighted menu option."""
-        choice = self.MENU_OPTIONS[self.selected]
-        if choice == "Contract Market":
-            self.game_state.push_scene(ContractMarketScene(self.game_state))
-        elif choice == "View Roster":
-            self.game_state.push_scene(RosterScene(self.game_state))
-        elif choice == "Quit":
-            self.game_state.running = False
-
-    def draw(self, win):
-        """Render the HQ dashboard screen with menu.
-
-        Args:
-            win: The curses standard screen window.
-        """
-        max_h, max_w = win.getmaxyx()
-        company = self.game_state.company
-
-        company_title = f"IRON CONTRACT - {company.name.upper()}" if company else "IRON CONTRACT - HQ"
-        ui.draw_header_bar(win, company_title)
-        ui.draw_status_bar(win, "Arrow Keys: Navigate | Enter: Select | Q: Quit")
-
-        center_y = max_h // 2 - 2
-
-        # Box
-        box_w = 50
-        box_h = 15
-        box_x = (max_w - box_w) // 2
-        box_y = center_y - 4
-        ui.draw_box(win, box_y, box_x, box_h, box_w, title="Headquarters")
-
-        ui.draw_centered_text(
-            win,
-            center_y - 2,
-            "Welcome, Commander.",
-            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
-        )
-
-        if company:
-            ui.draw_centered_text(
-                win,
-                center_y,
-                f"{company.name} is ready for action.",
-                ui.color_text(ui.COLOR_ACCENT),
-            )
-            stats = (
-                f"Mechs: {len(company.mechs)} | "
-                f"Pilots: {len(company.mechwarriors)} | "
-                f"C-Bills: {company.c_bills:,}"
-            )
-            ui.draw_centered_text(
-                win,
-                center_y + 1,
-                stats,
-                ui.color_text(ui.COLOR_MENU_INACTIVE),
-            )
-            month_str = f"Month: {company.week}"
-            ui.draw_centered_text(
-                win,
-                center_y + 2,
-                month_str,
-                ui.color_text(ui.COLOR_MENU_INACTIVE),
-            )
-
-        # Menu options
-        menu_y = center_y + 5
-        ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
+from game.hq import HQScene  # noqa: F811 — re-exported intentionally
 
 
 # ── Roster Scene (Accessible from HQ) ───────────────────────────────────

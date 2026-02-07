@@ -10,6 +10,9 @@ Provides:
 - ContractMarketScene: Contract market with selectable contracts.
 - ContractBriefingScene: Detailed briefing for a selected contract.
 - MissionReportScene: Post-mission combat log and results summary.
+- UpkeepPhaseScene: Monthly upkeep screen for repair decisions.
+- FinancialSummaryScene: End-of-month financial report.
+- GameOverScene: Bankruptcy game over screen.
 """
 
 import curses
@@ -18,6 +21,12 @@ import ui
 from data import Company, create_starting_lance, create_starting_pilots
 from data.contracts import generate_contracts
 from data.combat import resolve_combat
+from data.finance import (
+    calculate_monthly_upkeep,
+    apply_upkeep,
+    is_bankrupt,
+    _recalculate_totals,
+)
 from game.scene import Scene
 
 
@@ -592,11 +601,11 @@ class MissionReportScene(Scene):
         self.scroll_offset = 0
 
     def handle_input(self, key):
-        """Advance combat log or return to HQ.
+        """Advance combat log or proceed to upkeep phase.
 
         Any key press reveals the next combat log entry. Once all
         entries are visible, the summary is shown. Press Enter or
-        Escape to return to HQ.
+        Escape to proceed to the monthly upkeep phase.
 
         Args:
             key: The curses key code.
@@ -612,13 +621,23 @@ class MissionReportScene(Scene):
         else:
             # Summary is visible - navigate or dismiss
             if key in (curses.KEY_ENTER, 10, 13, 27):
-                self.game_state.pop_scene()  # Return to HQ
+                self._proceed_to_upkeep()
             elif key == curses.KEY_UP:
                 self.scroll_offset = max(0, self.scroll_offset - 1)
             elif key == curses.KEY_DOWN:
                 self.scroll_offset += 1
             elif key in (ord("q"), ord("Q")):
                 self.game_state.running = False
+
+    def _proceed_to_upkeep(self):
+        """Transition from mission report to the monthly upkeep phase."""
+        company = self.game_state.company
+        if company:
+            report = calculate_monthly_upkeep(company, self.result.c_bills_earned)
+            self.game_state.pop_scene()  # Pop mission report
+            self.game_state.push_scene(
+                UpkeepPhaseScene(self.game_state, report)
+            )
 
     def draw(self, win):
         """Render the mission report screen.
@@ -635,7 +654,7 @@ class MissionReportScene(Scene):
         if self.all_revealed:
             ui.draw_status_bar(
                 win,
-                "Enter: Return to HQ | Up/Down: Scroll | Q: Quit"
+                "Enter: Proceed to Monthly Upkeep | Up/Down: Scroll | Q: Quit"
             )
         else:
             ui.draw_status_bar(
@@ -662,14 +681,246 @@ class MissionReportScene(Scene):
             self.scroll_offset,
         )
 
-        # Show "Return to HQ" prompt when summary is visible
+        # Show "Proceed to Upkeep" prompt when summary is visible
         if self.all_revealed:
             ui.draw_centered_text(
                 win,
                 max_h - 3,
-                "[ Press ENTER to return to Headquarters ]",
+                "[ Press ENTER to proceed to Monthly Upkeep ]",
                 ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
             )
+
+
+# ── Upkeep Phase Scene ───────────────────────────────────────────────────
+
+class UpkeepPhaseScene(Scene):
+    """Monthly upkeep screen where the player decides on mech repairs.
+
+    Displays fixed costs (pilot salaries, mech maintenance) and lets the
+    player toggle repair decisions for each damaged mech. When confirmed,
+    transitions to the financial summary screen.
+    """
+
+    def __init__(self, game_state, report):
+        super().__init__(game_state)
+        self.report = report
+        self.selected = 0
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        """Navigate repair options and confirm upkeep.
+
+        Up/Down: Navigate repair list.
+        Space: Toggle repair on/off.
+        F (Finalize): Confirm and proceed to financial summary.
+
+        Args:
+            key: The curses key code.
+        """
+        if self.report.repairs:
+            if key == curses.KEY_UP:
+                self.selected = (self.selected - 1) % len(self.report.repairs)
+            elif key == curses.KEY_DOWN:
+                self.selected = (self.selected + 1) % len(self.report.repairs)
+            elif key == ord(" "):
+                # Toggle the selected repair
+                self.report.repairs[self.selected].repaired = (
+                    not self.report.repairs[self.selected].repaired
+                )
+                _recalculate_totals(self.report)
+            elif key in (ord("f"), ord("F"), curses.KEY_ENTER, 10, 13):
+                self._finalize()
+            elif key in (ord("q"), ord("Q")):
+                self.game_state.running = False
+        else:
+            # No repairs needed - any confirm key to continue
+            if key in (curses.KEY_ENTER, 10, 13, ord("f"), ord("F")):
+                self._finalize()
+            elif key in (ord("q"), ord("Q")):
+                self.game_state.running = False
+
+    def _finalize(self):
+        """Apply upkeep costs and proceed to financial summary."""
+        company = self.game_state.company
+        if company:
+            apply_upkeep(company, self.report)
+            self.game_state.pop_scene()  # Pop upkeep phase
+            self.game_state.push_scene(
+                FinancialSummaryScene(self.game_state, self.report)
+            )
+
+    def draw(self, win):
+        """Render the upkeep phase screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - MONTHLY UPKEEP")
+        if self.report.repairs:
+            ui.draw_status_bar(
+                win,
+                "Up/Down: Navigate | Space: Toggle Repair | F/Enter: Finalize Month"
+            )
+        else:
+            ui.draw_status_bar(
+                win,
+                "Enter/F: Finalize Month | Q: Quit"
+            )
+
+        row = 2
+        ui.draw_upkeep_phase(
+            win, row, self.report,
+            self.selected, self.scroll_offset,
+        )
+
+        # Finalize prompt at bottom
+        ui.draw_centered_text(
+            win,
+            max_h - 3,
+            "[ Press F or ENTER to finalize the month ]",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+
+
+# ── Financial Summary Scene ──────────────────────────────────────────────
+
+class FinancialSummaryScene(Scene):
+    """End-of-month financial report showing itemized income and expenses.
+
+    Displays the full breakdown of income from the contract vs. expenses
+    (salaries, maintenance, repairs) with net profit/loss and updated balance.
+    If the company is bankrupt, transitions to the GameOverScene.
+    """
+
+    def __init__(self, game_state, report):
+        super().__init__(game_state)
+        self.report = report
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        """Press Enter to return to HQ (or game over if bankrupt).
+
+        Args:
+            key: The curses key code.
+        """
+        if key in (curses.KEY_ENTER, 10, 13, 27):
+            self._proceed()
+        elif key == curses.KEY_UP:
+            self.scroll_offset = max(0, self.scroll_offset - 1)
+        elif key == curses.KEY_DOWN:
+            self.scroll_offset += 1
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _proceed(self):
+        """Check for bankruptcy and proceed accordingly."""
+        company = self.game_state.company
+        self.game_state.pop_scene()  # Pop financial summary
+
+        if company and is_bankrupt(company):
+            self.game_state.push_scene(
+                GameOverScene(self.game_state)
+            )
+        # Otherwise, we return to HQ (already on the stack)
+
+    def draw(self, win):
+        """Render the financial summary screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - FINANCIAL SUMMARY")
+        ui.draw_status_bar(
+            win,
+            "Enter: Continue | Up/Down: Scroll | Q: Quit"
+        )
+
+        row = 2
+        ui.draw_financial_summary(
+            win, row, self.report, self.scroll_offset,
+        )
+
+        # Continue prompt
+        ui.draw_centered_text(
+            win,
+            max_h - 3,
+            "[ Press ENTER to continue ]",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+
+
+# ── Game Over Scene ──────────────────────────────────────────────────────
+
+class GameOverScene(Scene):
+    """Game over screen displayed when the company goes bankrupt.
+
+    Shows final stats (months survived, contracts completed) and offers
+    to return to the main menu.
+    """
+
+    MENU_OPTIONS = ["Return to Main Menu", "Quit"]
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.selected = 0
+
+    def handle_input(self, key):
+        """Navigate game over menu options.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % len(self.MENU_OPTIONS)
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % len(self.MENU_OPTIONS)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._select_option()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _select_option(self):
+        """Execute the currently highlighted menu option."""
+        choice = self.MENU_OPTIONS[self.selected]
+        if choice == "Return to Main Menu":
+            self._return_to_menu()
+        elif choice == "Quit":
+            self.game_state.running = False
+
+    def _return_to_menu(self):
+        """Clear game state and return to the main menu.
+
+        Pops all scenes and pushes the main menu fresh.
+        """
+        # Pop all scenes
+        while self.game_state.current_scene:
+            self.game_state.pop_scene()
+        # Reset company
+        self.game_state.company = None
+        # Push main menu
+        self.game_state.push_scene(MainMenuScene(self.game_state))
+
+    def draw(self, win):
+        """Render the game over screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - GAME OVER")
+        ui.draw_status_bar(win, "Up/Down: Navigate | Enter: Select")
+
+        row = 3
+        row = ui.draw_game_over(win, row, self.game_state.company)
+
+        # Menu
+        menu_y = min(row + 2, max_h - 5)
+        ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
 
 
 # ── Company Creation Helper ──────────────────────────────────────────────

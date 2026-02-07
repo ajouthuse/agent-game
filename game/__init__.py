@@ -32,6 +32,8 @@ from game.hq import (
     advance_week,
     WEEKLY_PAYROLL_PER_PILOT,
 )
+from game.roster_screen import RosterManagementScene
+from game.mechbay_screen import MechBayManagementScene
 from game.state import GameState
 
 __all__ = [
@@ -43,6 +45,8 @@ __all__ = [
     "WeeklySummaryScene",
     "QuitConfirmScene",
     "MechBayScene",
+    "RosterManagementScene",
+    "MechBayManagementScene",
     "advance_week",
     "WEEKLY_PAYROLL_PER_PILOT",
     "RosterScene",

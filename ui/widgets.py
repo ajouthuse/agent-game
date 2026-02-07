@@ -1723,3 +1723,149 @@ def draw_recovery_messages(win, start_y, messages):
             row += 1
 
     return row
+
+
+# ── Salvage Market Display ────────────────────────────────────────────
+
+def draw_salvage_list(win, start_y, items, selected_index):
+    """Draw a list of mechs available for purchase in the salvage market.
+
+    Shows each mech with its weight class, tonnage, firepower, speed,
+    and price. The selected item is highlighted.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the list.
+        items: List of SalvageItem instances to display.
+        selected_index: Index of the currently highlighted item.
+
+    Returns:
+        The next available row after the list.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y
+
+    # Column layout: Name, Class, Tons, FP, SPD, Price
+    col_widths = [22, 8, 6, 4, 4, 14]
+    headers = ["MECH", "CLASS", "TONS", "FP", "SPD", "PRICE"]
+    table_width = sum(col_widths) + len(col_widths) - 1
+    table_x = max(1, (max_w - table_width) // 2)
+
+    # Header row
+    draw_table_row(
+        win, row, table_x, headers, col_widths,
+        color_text(COLOR_STATUS) | curses.A_BOLD,
+    )
+    row += 1
+
+    # Separator
+    try:
+        sep = "-" * table_width
+        sep_x = max(1, (max_w - len(sep)) // 2)
+        win.addstr(row, sep_x, sep, color_text(COLOR_BORDER))
+    except curses.error:
+        pass
+    row += 1
+
+    for i, item in enumerate(items):
+        mech = item.mech
+        price_str = f"{item.price:,} CB"
+
+        cols = [
+            mech.name,
+            mech.weight_class.value,
+            str(mech.tonnage),
+            str(mech.firepower),
+            str(mech.speed),
+            price_str,
+        ]
+
+        if i == selected_index:
+            row_attr = color_text(COLOR_ACCENT) | curses.A_BOLD
+            # Draw selection indicator
+            indicator_x = table_x - 2
+            if indicator_x >= 0:
+                try:
+                    win.addstr(row, indicator_x, ">", row_attr)
+                except curses.error:
+                    pass
+        else:
+            row_attr = color_text(COLOR_MENU_INACTIVE)
+
+        draw_table_row(win, row, table_x, cols, col_widths, row_attr)
+        row += 1
+
+    return row
+
+
+# ── Hiring Hall Display ──────────────────────────────────────────────
+
+def draw_hiring_list(win, start_y, available, selected_index):
+    """Draw a list of pilots available for hire in the hiring hall.
+
+    Shows each pilot with their name, callsign, gunnery, piloting,
+    morale, and hiring cost. The selected item is highlighted.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the list.
+        available: List of HireablePilot instances to display.
+        selected_index: Index of the currently highlighted item.
+
+    Returns:
+        The next available row after the list.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y
+
+    # Column layout: Name, Callsign, Gun, Plt, Morale, Cost
+    col_widths = [18, 10, 4, 4, 7, 14]
+    headers = ["NAME", "CALLSIGN", "GUN", "PLT", "MORALE", "HIRING COST"]
+    table_width = sum(col_widths) + len(col_widths) - 1
+    table_x = max(1, (max_w - table_width) // 2)
+
+    # Header row
+    draw_table_row(
+        win, row, table_x, headers, col_widths,
+        color_text(COLOR_STATUS) | curses.A_BOLD,
+    )
+    row += 1
+
+    # Separator
+    try:
+        sep = "-" * table_width
+        sep_x = max(1, (max_w - len(sep)) // 2)
+        win.addstr(row, sep_x, sep, color_text(COLOR_BORDER))
+    except curses.error:
+        pass
+    row += 1
+
+    for i, hireable in enumerate(available):
+        pilot = hireable.pilot
+        cost_str = f"{hireable.hiring_cost:,} CB"
+
+        cols = [
+            pilot.name,
+            pilot.callsign,
+            str(pilot.gunnery),
+            str(pilot.piloting),
+            str(pilot.morale),
+            cost_str,
+        ]
+
+        if i == selected_index:
+            row_attr = color_text(COLOR_ACCENT) | curses.A_BOLD
+            # Draw selection indicator
+            indicator_x = table_x - 2
+            if indicator_x >= 0:
+                try:
+                    win.addstr(row, indicator_x, ">", row_attr)
+                except curses.error:
+                    pass
+        else:
+            row_attr = color_text(COLOR_MENU_INACTIVE)
+
+        draw_table_row(win, row, table_x, cols, col_widths, row_attr)
+        row += 1
+
+    return row

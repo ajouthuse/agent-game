@@ -82,10 +82,27 @@ def advance_week(company):
     # 2. Progress repair timers (damaged mechs get a note)
     for mech in company.mechs:
         if mech.status == MechStatus.DAMAGED:
-            summary["repairs_progressed"].append(mech.name)
-            summary["status_changes"].append(
-                f"{mech.name}: Repair in progress (still damaged)"
-            )
+            # Progress repair if one is active
+            if hasattr(mech, 'repair_weeks_remaining') and mech.repair_weeks_remaining > 0:
+                mech.repair_weeks_remaining -= 1
+                if mech.repair_weeks_remaining <= 0:
+                    # Repair complete
+                    mech.armor_current = mech.armor_max
+                    mech.status = MechStatus.READY
+                    summary["repairs_progressed"].append(mech.name)
+                    summary["status_changes"].append(
+                        f"{mech.name}: Repair complete - ready for deployment!"
+                    )
+                else:
+                    summary["repairs_progressed"].append(mech.name)
+                    summary["status_changes"].append(
+                        f"{mech.name}: Repair in progress ({mech.repair_weeks_remaining}w remaining)"
+                    )
+            else:
+                # Damaged but not being repaired
+                summary["status_changes"].append(
+                    f"{mech.name}: Damaged - awaiting repair orders"
+                )
 
     # 3. Progress active contract timer and check for battle
     battle_contract = None
@@ -215,13 +232,14 @@ class HQScene(Scene):
         self.game_state.push_scene(ContractMarketScene(self.game_state))
 
     def _go_roster(self):
-        """Navigate to the roster screen."""
-        from game.scenes import RosterScene
-        self.game_state.push_scene(RosterScene(self.game_state))
+        """Navigate to the roster management screen."""
+        from game.roster_screen import RosterManagementScene
+        self.game_state.push_scene(RosterManagementScene(self.game_state))
 
     def _go_mech_bay(self):
-        """Navigate to the mech bay placeholder screen."""
-        self.game_state.push_scene(MechBayScene(self.game_state))
+        """Navigate to the mech bay management screen."""
+        from game.mechbay_screen import MechBayManagementScene
+        self.game_state.push_scene(MechBayManagementScene(self.game_state))
 
     def _advance_week(self):
         """Advance the game by one week and show the summary."""

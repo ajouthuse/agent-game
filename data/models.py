@@ -66,6 +66,7 @@ class BattleMech:
         firepower: Abstract combat strength rating (1-10).
         speed: Abstract speed/mobility rating (1-10).
         status: Operational readiness.
+        repair_weeks_remaining: Weeks remaining for repair (0 if not repairing).
     """
 
     name: str
@@ -78,6 +79,7 @@ class BattleMech:
     firepower: int
     speed: int
     status: MechStatus = MechStatus.READY
+    repair_weeks_remaining: int = 0
 
     def to_dict(self) -> dict:
         """Serialize to a plain dictionary."""
@@ -92,6 +94,7 @@ class BattleMech:
             "firepower": self.firepower,
             "speed": self.speed,
             "status": self.status.value,
+            "repair_weeks_remaining": self.repair_weeks_remaining,
         }
 
     @classmethod
@@ -108,6 +111,7 @@ class BattleMech:
             firepower=d["firepower"],
             speed=d["speed"],
             status=MechStatus(d["status"]),
+            repair_weeks_remaining=d.get("repair_weeks_remaining", 0),
         )
 
 

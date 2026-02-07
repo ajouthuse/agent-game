@@ -193,6 +193,7 @@ class Company:
         mechs: List of owned BattleMechs in the mech bay.
         active_contract: Currently active contract, or None.
         available_contracts: List of available contracts on the market.
+        event_history: List of past event titles (for tracking).
     """
 
     name: str
@@ -204,6 +205,7 @@ class Company:
     mechs: List[BattleMech] = field(default_factory=list)
     active_contract: Optional["Contract"] = None
     available_contracts: List["Contract"] = field(default_factory=list)
+    event_history: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Serialize to a plain dictionary."""
@@ -217,6 +219,7 @@ class Company:
             "mechs": [m.to_dict() for m in self.mechs],
             "active_contract": self.active_contract.to_dict() if self.active_contract else None,
             "available_contracts": [c.to_dict() for c in self.available_contracts],
+            "event_history": self.event_history,
         }
 
     @classmethod
@@ -232,6 +235,7 @@ class Company:
             mechs=[BattleMech.from_dict(m) for m in d["mechs"]],
             active_contract=Contract.from_dict(d["active_contract"]) if d.get("active_contract") else None,
             available_contracts=[Contract.from_dict(c) for c in d.get("available_contracts", [])],
+            event_history=d.get("event_history", []),
         )
 
 

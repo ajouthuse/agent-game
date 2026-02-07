@@ -41,7 +41,8 @@ def advance_week(company):
     2. Progress any active repair timers by 1 week
     3. Progress any active contract timers by 1 week
     4. Regenerate available contracts each week
-    5. Update week counter
+    5. Check for random events (30% chance)
+    6. Update week counter
 
     Args:
         company: The player's Company instance (modified in place).
@@ -56,8 +57,10 @@ def advance_week(company):
         - balance_after: C-Bills after deduction.
         - repairs_progressed: List of mech names with repair progress.
         - status_changes: List of string descriptions of status changes.
+        - random_event: RandomEvent instance if one occurred, None otherwise.
     """
     from data.contracts import generate_contracts
+    from data.events import get_random_event
 
     summary = {
         "week_before": company.week,
@@ -66,6 +69,7 @@ def advance_week(company):
         "balance_before": company.c_bills,
         "repairs_progressed": [],
         "status_changes": [],
+        "random_event": None,
     }
 
     # 1. Deduct weekly overhead (payroll for active MechWarriors)
@@ -119,7 +123,11 @@ def advance_week(company):
     # 4. Regenerate available contracts each week
     company.available_contracts = generate_contracts(company.week)
 
-    # 5. Update week counter (only if no battle - battle will do this)
+    # 5. Check for random events (30% chance)
+    random_event = get_random_event()
+    summary["random_event"] = random_event
+
+    # 6. Update week counter (only if no battle - battle will do this)
     if not battle_contract:
         company.week += 1
     summary["week_after"] = company.week
@@ -246,16 +254,22 @@ class HQScene(Scene):
         company = self.game_state.company
         if company:
             summary = advance_week(company)
-            
+
             # Check if battle should trigger
             if summary.get("battle_contract"):
                 from game.scenes import BattleDeploymentScene
                 from data.battle import generate_enemy_lance
-                
+
                 contract = summary["battle_contract"]
                 enemies = generate_enemy_lance(contract.difficulty)
                 self.game_state.push_scene(
                     BattleDeploymentScene(self.game_state, contract, enemies)
+                )
+            # Check if random event occurred
+            elif summary.get("random_event"):
+                # Show event first, then summary
+                self.game_state.push_scene(
+                    RandomEventScene(self.game_state, summary["random_event"], summary)
                 )
             else:
                 # Normal week summary
@@ -648,6 +662,196 @@ class QuitConfirmScene(Scene):
         options = ["Yes", "No"]
         option_y = box_y + 4
         ui.draw_menu(win, option_y, options, self.selected)
+
+
+# ── Random Event Scene ───────────────────────────────────────────────────
+
+class RandomEventScene(Scene):
+    """Displays a random inter-week event.
+
+    Shows event title, description, and applies the event's effect.
+    If the event requires a choice, shows Y/N options.
+    """
+
+    def __init__(self, game_state, event, summary):
+        """Initialize with the event and weekly summary data.
+
+        Args:
+            game_state: The GameState instance.
+            event: The RandomEvent instance.
+            summary: Dict from advance_week() with summary data.
+        """
+        super().__init__(game_state)
+        self.event = event
+        self.summary = summary
+        self.selected = 1  # Default to "No" for choice events
+        self.event_applied = False
+        self.result_text = ""
+
+    def handle_input(self, key):
+        """Handle event screen input.
+
+        For non-choice events: Enter to continue
+        For choice events: Y/N or arrow keys + Enter
+
+        Args:
+            key: The curses key code.
+        """
+        if not self.event.requires_choice:
+            # Simple event - just press Enter to continue
+            if key in (curses.KEY_ENTER, 10, 13):
+                if not self.event_applied:
+                    self._apply_event(True)
+                else:
+                    self._proceed()
+        else:
+            # Choice event - Y/N or arrow keys
+            if key in (ord("y"), ord("Y")):
+                self._apply_event(True)
+            elif key in (ord("n"), ord("N")):
+                self._apply_event(False)
+            elif key == curses.KEY_UP or key == curses.KEY_LEFT:
+                self.selected = (self.selected - 1) % 2
+            elif key == curses.KEY_DOWN or key == curses.KEY_RIGHT:
+                self.selected = (self.selected + 1) % 2
+            elif key in (curses.KEY_ENTER, 10, 13):
+                # 0 = Yes, 1 = No
+                self._apply_event(self.selected == 0)
+
+    def _apply_event(self, accepted):
+        """Apply the event's effect and store the result."""
+        if not self.event_applied:
+            from data.events import apply_event
+            self.result_text = apply_event(self.event, self.game_state.company, accepted)
+            self.event_applied = True
+            # Record event in history
+            if self.game_state.company:
+                event_entry = f"Week {self.game_state.company.week}: {self.event.title}"
+                self.game_state.company.event_history.append(event_entry)
+        # After applying, proceed to summary
+        self._proceed()
+
+    def _proceed(self):
+        """Continue to weekly summary."""
+        self.game_state.pop_scene()  # Pop event scene
+        # Push weekly summary
+        self.game_state.push_scene(
+            WeeklySummaryScene(self.game_state, self.summary)
+        )
+
+    def draw(self, win):
+        """Render the random event screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - RANDOM EVENT")
+
+        if self.event.requires_choice and not self.event_applied:
+            ui.draw_status_bar(win, "Y: Accept | N: Decline | Arrow Keys: Navigate | Enter: Select")
+        else:
+            ui.draw_status_bar(win, "Press ENTER to continue")
+
+        # Event box
+        box_w = min(70, max_w - 6)
+        box_h = 15
+        box_x = (max_w - box_w) // 2
+        box_y = max(2, (max_h - box_h) // 2)
+
+        ui.draw_box(win, box_y, box_x, box_h, box_w, title="Event")
+
+        inner_x = box_x + 2
+        inner_w = box_w - 4
+        row = box_y + 2
+
+        # Event title
+        try:
+            win.addstr(
+                row, inner_x,
+                self.event.title.upper()[:inner_w],
+                ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+            )
+        except curses.error:
+            pass
+        row += 2
+
+        # Event description (word wrap)
+        description_lines = self._wrap_text(self.event.description, inner_w)
+        for line in description_lines[:5]:  # Limit to 5 lines
+            try:
+                win.addstr(
+                    row, inner_x,
+                    line,
+                    ui.color_text(ui.COLOR_MENU_INACTIVE),
+                )
+            except curses.error:
+                pass
+            row += 1
+        row += 1
+
+        # Show result if event was applied
+        if self.event_applied and self.result_text:
+            try:
+                win.addstr(
+                    row, inner_x,
+                    f"Result: {self.result_text[:inner_w]}",
+                    ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD,
+                )
+            except curses.error:
+                pass
+            row += 2
+
+        # Show choice options if needed
+        if self.event.requires_choice and not self.event_applied:
+            row += 1
+            try:
+                win.addstr(
+                    row, inner_x,
+                    self.event.choice_prompt[:inner_w],
+                    ui.color_text(ui.COLOR_TITLE),
+                )
+            except curses.error:
+                pass
+            row += 1
+
+            # Yes / No options
+            options = ["Accept", "Decline"]
+            option_y = row
+            ui.draw_menu(win, option_y, options, self.selected)
+
+    def _wrap_text(self, text, width):
+        """Wrap text to fit within a given width.
+
+        Args:
+            text: The text to wrap.
+            width: Maximum width in characters.
+
+        Returns:
+            A list of wrapped lines.
+        """
+        words = text.split()
+        lines = []
+        current_line = []
+        current_length = 0
+
+        for word in words:
+            word_len = len(word)
+            # +1 for space between words
+            if current_length + word_len + len(current_line) > width:
+                if current_line:
+                    lines.append(" ".join(current_line))
+                current_line = [word]
+                current_length = word_len
+            else:
+                current_line.append(word)
+                current_length += word_len
+
+        if current_line:
+            lines.append(" ".join(current_line))
+
+        return lines
 
 
 # ── Mech Bay Placeholder Scene ───────────────────────────────────────────

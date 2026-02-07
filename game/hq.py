@@ -121,16 +121,38 @@ def advance_week(company):
             )
             # Don't clear active_contract here - battle will do that
 
-    # 4. Regenerate available contracts each week
-    company.available_contracts = generate_contracts(company.week)
+    # 4. Update month tracker (each month = 4 weeks)
+    old_month = company.month
+    if not battle_contract:
+        company.week += 1
+        company.month = ((company.week - 1) // 4) + 1
 
-    # 5. Check for random events (30% chance)
+    # Check if we entered a new month and if final contract should appear
+    new_month = company.month
+    month_changed = new_month > old_month
+    summary["month_changed"] = month_changed
+    summary["old_month"] = old_month
+    summary["new_month"] = new_month
+
+    # 5. Regenerate available contracts each week
+    # After month 12, check if final contract should be added
+    if company.month >= 12 and not company.final_contract_completed:
+        from data.contracts import generate_final_contract
+        # Check if final contract is already in available contracts
+        has_final = any(c.is_final_contract for c in company.available_contracts)
+        if not has_final:
+            # Add final contract to the market
+            company.available_contracts = generate_contracts(company.week)
+            final_contract = generate_final_contract()
+            company.available_contracts.append(final_contract)
+        # else: keep existing contracts including the final contract
+    else:
+        company.available_contracts = generate_contracts(company.week)
+
+    # 6. Check for random events (30% chance)
     random_event = get_random_event()
     summary["random_event"] = random_event
 
-    # 6. Update week counter (only if no battle - battle will do this)
-    if not battle_contract:
-        company.week += 1
     summary["week_after"] = company.week
     summary["balance_after"] = company.c_bills
     summary["battle_contract"] = battle_contract
@@ -218,6 +240,7 @@ class HQScene(Scene):
         C - Contracts (find new work)
         R - Roster (manage MechWarriors)
         M - Mech Bay (view and repair mechs)
+        S - Stats (view campaign statistics)
         A - Advance (end week)
         Q - Quit (save and exit)
 
@@ -230,6 +253,8 @@ class HQScene(Scene):
             self._go_roster()
         elif key in (ord("m"), ord("M")):
             self._go_mech_bay()
+        elif key in (ord("s"), ord("S")):
+            self._go_campaign_stats()
         elif key in (ord("a"), ord("A")):
             self._advance_week()
         elif key in (ord("q"), ord("Q")):
@@ -249,6 +274,10 @@ class HQScene(Scene):
         """Navigate to the mech bay management screen."""
         from game.mechbay_screen import MechBayManagementScene
         self.game_state.push_scene(MechBayManagementScene(self.game_state))
+
+    def _go_campaign_stats(self):
+        """Navigate to the campaign statistics screen."""
+        self.game_state.push_scene(CampaignStatsScene(self.game_state))
 
     def _advance_week(self):
         """Advance the game by one week and show the summary."""
@@ -280,11 +309,6 @@ class HQScene(Scene):
 
             # Auto-save after week advances
             save_game(company)
-
-            # Check victory condition (reputation >= 75 AND c_bills >= 10,000,000)
-            if company.reputation >= 75 and company.c_bills >= 10_000_000:
-                from game.scenes import VictoryScene
-                self.game_state.push_scene(VictoryScene(self.game_state))
 
     def _confirm_quit(self):
         """Save the game and return to main menu."""
@@ -333,18 +357,18 @@ class HQScene(Scene):
         inner_w = box_w - 4
         row = box_y + 1
 
-        # Company name and week
+        # Company name and month
         title_line = f"IRON CONTRACT - {company.name}"
-        week_str = f"Week {company.week}"
-        # Draw title on left, week on right within box
+        month_str = f"Month {company.month}"
+        # Draw title on left, month on right within box
         title_attr = ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD
         try:
             # Truncate if necessary
-            avail = inner_w - len(week_str) - 2
+            avail = inner_w - len(month_str) - 2
             display_title = title_line[:avail] if len(title_line) > avail else title_line
             win.addstr(row, inner_x, display_title, title_attr)
-            week_x = box_x + box_w - len(week_str) - 3
-            win.addstr(row, week_x, week_str, title_attr)
+            month_x = box_x + box_w - len(month_str) - 3
+            win.addstr(row, month_x, month_str, title_attr)
         except curses.error:
             pass
         row += 1
@@ -358,7 +382,19 @@ class HQScene(Scene):
             )
         except curses.error:
             pass
-        row += 2
+        row += 1
+
+        # Company stats (lance size, contracts completed)
+        lance_size = len([mw for mw in company.mechwarriors if mw.status != PilotStatus.KIA])
+        stats2_line = f"Lance: {lance_size} pilots | Contracts: {company.contracts_completed}"
+        try:
+            win.addstr(
+                row, inner_x, stats2_line[:inner_w],
+                ui.color_text(ui.COLOR_ACCENT),
+            )
+        except curses.error:
+            pass
+        row += 1
 
         # Separator line
         try:
@@ -373,6 +409,7 @@ class HQScene(Scene):
             ("C", "Contracts", "Find new work"),
             ("R", "Roster", "Manage MechWarriors"),
             ("M", "Mech Bay", "View and repair mechs"),
+            ("S", "Stats", "View campaign statistics"),
             ("A", "Advance", "End week"),
             ("Q", "Quit", "Save and exit"),
         ]
@@ -982,4 +1019,235 @@ class MechBayScene(Scene):
             win, row,
             "(Full repair and customization coming in a future update)",
             ui.color_text(ui.COLOR_MENU_INACTIVE),
+        )
+
+
+# ── Campaign Stats Scene ──────────────────────────────────────────────────
+
+class CampaignStatsScene(Scene):
+    """Displays comprehensive campaign statistics.
+
+    Shows the player's performance across the entire campaign run including
+    months survived, contracts completed, earnings, losses, and more.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+
+    def handle_input(self, key):
+        """Press Escape or Enter to return to HQ.
+
+        Args:
+            key: The curses key code.
+        """
+        if key in (27, curses.KEY_ENTER, 10, 13):  # Escape or Enter
+            self.game_state.pop_scene()
+
+    def draw(self, win):
+        """Render the campaign statistics screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - CAMPAIGN STATISTICS")
+        ui.draw_status_bar(win, "Press ENTER or ESC to return to HQ")
+
+        if not company:
+            return
+
+        # Stats box
+        box_w = min(60, max_w - 6)
+        box_h = 20
+        box_x = (max_w - box_w) // 2
+        box_y = max(2, (max_h - box_h) // 2)
+
+        ui.draw_box(win, box_y, box_x, box_h, box_w, title="Campaign Statistics")
+
+        inner_x = box_x + 2
+        inner_w = box_w - 4
+        row = box_y + 2
+
+        # Company name
+        try:
+            win.addstr(
+                row, inner_x,
+                company.name.upper()[:inner_w],
+                ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+            )
+        except curses.error:
+            pass
+        row += 2
+
+        # Campaign progress
+        stats = [
+            ("Campaign Progress", ""),
+            (f"  Month:", f"{company.month}"),
+            (f"  Week:", f"{company.week}"),
+            ("", ""),
+            ("Performance", ""),
+            (f"  Contracts Completed:", f"{company.contracts_completed}"),
+            (f"  Total Earnings:", f"{company.total_earnings:,} C-Bills"),
+            (f"  Current Balance:", f"{company.c_bills:,} C-Bills"),
+            (f"  Reputation:", f"{company.reputation}/100"),
+            ("", ""),
+            ("Losses", ""),
+            (f"  Mechs Lost:", f"{company.mechs_lost}"),
+            (f"  Pilots Lost:", f"{company.pilots_lost}"),
+            ("", ""),
+            ("Current Forces", ""),
+            (f"  Active Mechs:", f"{len([m for m in company.mechs if m.status == MechStatus.READY])}"),
+            (f"  Total Mechs:", f"{len(company.mechs)}"),
+            (f"  Active Pilots:", f"{len([mw for mw in company.mechwarriors if mw.status != PilotStatus.KIA])}"),
+        ]
+
+        for label, value in stats:
+            if row >= box_y + box_h - 1:
+                break
+
+            if label and not value:
+                # Section header
+                try:
+                    win.addstr(
+                        row, inner_x,
+                        label[:inner_w],
+                        ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD,
+                    )
+                except curses.error:
+                    pass
+            elif label:
+                # Stat line
+                try:
+                    win.addstr(
+                        row, inner_x,
+                        label[:inner_w - 20],
+                        ui.color_text(ui.COLOR_MENU_INACTIVE),
+                    )
+                    value_x = box_x + box_w - len(value) - 3
+                    win.addstr(
+                        row, value_x,
+                        value[:20],
+                        ui.color_text(ui.COLOR_TITLE),
+                    )
+                except curses.error:
+                    pass
+            row += 1
+
+
+# ── Victory Scene ─────────────────────────────────────────────────────────
+
+class VictoryScene(Scene):
+    """Displays the campaign victory screen.
+
+    Shows when the player completes the final contract successfully.
+    Displays comprehensive campaign statistics and congratulations.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+
+    def handle_input(self, key):
+        """Press Enter to return to main menu.
+
+        Args:
+            key: The curses key code.
+        """
+        if key in (curses.KEY_ENTER, 10, 13):
+            # Return to main menu
+            while self.game_state.current_scene:
+                self.game_state.pop_scene()
+
+    def draw(self, win):
+        """Render the victory screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - VICTORY!")
+        ui.draw_status_bar(win, "Press ENTER to return to main menu")
+
+        if not company:
+            return
+
+        row = 3
+
+        # Victory banner
+        ui.draw_centered_text(
+            win, row,
+            "╔═══════════════════════════════════════╗",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 1
+        ui.draw_centered_text(
+            win, row,
+            "║       CAMPAIGN VICTORY ACHIEVED!      ║",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 1
+        ui.draw_centered_text(
+            win, row,
+            "╚═══════════════════════════════════════╝",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 3
+
+        # Victory message
+        victory_lines = [
+            f"Congratulations, Commander!",
+            "",
+            f"{company.name} has completed the legendary final contract",
+            "and secured the Star League cache. Your company's reputation",
+            "now echoes across the Inner Sphere as one of the greatest",
+            "mercenary units of the era.",
+            "",
+            "Your name will be remembered in the annals of history.",
+        ]
+
+        for line in victory_lines:
+            ui.draw_centered_text(
+                win, row,
+                line,
+                ui.color_text(ui.COLOR_ACCENT),
+            )
+            row += 1
+
+        row += 2
+
+        # Campaign stats
+        ui.draw_centered_text(
+            win, row,
+            "═══ FINAL CAMPAIGN STATISTICS ═══",
+            ui.color_text(ui.COLOR_BORDER) | curses.A_BOLD,
+        )
+        row += 2
+
+        stats_lines = [
+            f"Campaign Duration: {company.month} months ({company.week} weeks)",
+            f"Contracts Completed: {company.contracts_completed}",
+            f"Total Earnings: {company.total_earnings:,} C-Bills",
+            f"Final Balance: {company.c_bills:,} C-Bills",
+            f"Final Reputation: {company.reputation}/100",
+            f"Mechs Lost: {company.mechs_lost}",
+            f"Pilots Lost: {company.pilots_lost}",
+        ]
+
+        for line in stats_lines:
+            ui.draw_centered_text(
+                win, row,
+                line,
+                ui.color_text(ui.COLOR_TITLE),
+            )
+            row += 1
+
+        row += 2
+
+        ui.draw_centered_text(
+            win, row,
+            "[ Press ENTER to return to main menu ]",
+            ui.color_text(ui.COLOR_MENU_ACTIVE) | curses.A_BOLD,
         )

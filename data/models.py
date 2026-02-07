@@ -188,7 +188,12 @@ class Company:
         c_bills: Available currency (C-Bills).
         reputation: Reputation score on a 0-100 scale.
         week: Current in-game week number.
+        month: Current campaign month (1-12+, derived from week).
         contracts_completed: Total number of contracts completed.
+        total_earnings: Total C-Bills earned from all contracts.
+        mechs_lost: Total number of mechs destroyed in campaign.
+        pilots_lost: Total number of pilots killed in campaign.
+        final_contract_completed: Whether the final victory contract was completed.
         mechwarriors: Roster of hired MechWarriors.
         mechs: List of owned BattleMechs in the mech bay.
         active_contract: Currently active contract, or None.
@@ -200,7 +205,12 @@ class Company:
     c_bills: int = 500_000
     reputation: int = 15
     week: int = 1
+    month: int = 1
     contracts_completed: int = 0
+    total_earnings: int = 0
+    mechs_lost: int = 0
+    pilots_lost: int = 0
+    final_contract_completed: bool = False
     mechwarriors: List[MechWarrior] = field(default_factory=list)
     mechs: List[BattleMech] = field(default_factory=list)
     active_contract: Optional["Contract"] = None
@@ -214,7 +224,12 @@ class Company:
             "c_bills": self.c_bills,
             "reputation": self.reputation,
             "week": self.week,
+            "month": self.month,
             "contracts_completed": self.contracts_completed,
+            "total_earnings": self.total_earnings,
+            "mechs_lost": self.mechs_lost,
+            "pilots_lost": self.pilots_lost,
+            "final_contract_completed": self.final_contract_completed,
             "mechwarriors": [mw.to_dict() for mw in self.mechwarriors],
             "mechs": [m.to_dict() for m in self.mechs],
             "active_contract": self.active_contract.to_dict() if self.active_contract else None,
@@ -230,7 +245,12 @@ class Company:
             c_bills=d["c_bills"],
             reputation=d["reputation"],
             week=d.get("week", 1),
+            month=d.get("month", 1),
             contracts_completed=d.get("contracts_completed", 0),
+            total_earnings=d.get("total_earnings", 0),
+            mechs_lost=d.get("mechs_lost", 0),
+            pilots_lost=d.get("pilots_lost", 0),
+            final_contract_completed=d.get("final_contract_completed", False),
             mechwarriors=[MechWarrior.from_dict(mw) for mw in d["mechwarriors"]],
             mechs=[BattleMech.from_dict(m) for m in d["mechs"]],
             active_contract=Contract.from_dict(d["active_contract"]) if d.get("active_contract") else None,
@@ -255,6 +275,7 @@ class Contract:
         description: Flavor text describing the mission briefing.
         duration: Contract duration in weeks (1-3).
         weeks_remaining: Countdown timer for active contracts (initialized from duration).
+        is_final_contract: Whether this is the campaign-ending final contract.
     """
 
     employer: str
@@ -266,6 +287,7 @@ class Contract:
     description: str
     duration: int = 2
     weeks_remaining: int = 0
+    is_final_contract: bool = False
 
     def skulls_display(self) -> str:
         """Return a visual skull rating string like '[***--]'."""
@@ -285,6 +307,7 @@ class Contract:
             "description": self.description,
             "duration": self.duration,
             "weeks_remaining": self.weeks_remaining,
+            "is_final_contract": self.is_final_contract,
         }
 
     @classmethod
@@ -300,4 +323,5 @@ class Contract:
             description=d["description"],
             duration=d.get("duration", 2),
             weeks_remaining=d.get("weeks_remaining", 0),
+            is_final_contract=d.get("is_final_contract", False),
         )

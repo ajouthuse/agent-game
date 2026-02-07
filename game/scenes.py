@@ -610,7 +610,7 @@ class ContractMarketScene(Scene):
         row += 1
 
         if company:
-            month_str = f"Month {company.week} | C-Bills: {company.c_bills:,}"
+            month_str = f"Month {company.month} | C-Bills: {company.c_bills:,}"
             ui.draw_centered_text(
                 win, row, month_str,
                 ui.color_text(ui.COLOR_MENU_INACTIVE),
@@ -800,6 +800,14 @@ class MissionReportScene(Scene):
         """
         company = self.game_state.company
         if company:
+            # Check if this was the final contract and it was won
+            if self.contract.is_final_contract and company.final_contract_completed:
+                # Victory! Show victory screen
+                self.game_state.pop_scene()  # Pop mission report
+                from game.hq import VictoryScene
+                self.game_state.push_scene(VictoryScene(self.game_state))
+                return
+
             # Apply standardized morale outcome (in addition to combat system adjustments)
             apply_morale_outcome(company, self.result.outcome.value)
 
@@ -1621,9 +1629,9 @@ class BattleSimulationScene(Scene):
 
 class VictoryScene(Scene):
     """Victory screen displayed when the player wins the campaign.
-    
-    Victory conditions: Reputation >= 75 AND C-Bills >= 10,000,000
-    
+
+    Victory condition: Successfully complete the final contract after month 12
+
     Shows campaign statistics:
     - Weeks played
     - Contracts completed

@@ -614,6 +614,9 @@ def resolve_combat(company: Company, contract: Contract) -> MissionResult:
     # Step 4: Generate narrative events
     combat_log = generate_combat_events(company, outcome)
 
+    # Track pilot KIA count before damage to detect changes
+    pilots_kia_before = sum(1 for mw in company.mechwarriors if mw.status == PilotStatus.KIA)
+
     # Step 5: Apply damage (before rewards, so destroyed mechs are tracked)
     mech_damage, pilot_injuries = apply_damage(
         company, outcome, contract.difficulty
@@ -624,7 +627,18 @@ def resolve_combat(company: Company, contract: Contract) -> MissionResult:
 
     # Step 7: Update company tracking
     company.contracts_completed += 1
+    company.total_earnings += c_bills_earned
     company.week += 1
+    company.month = ((company.week - 1) // 4) + 1
+
+    # Count mechs and pilots lost in this battle
+    pilots_kia = sum(1 for mw in company.mechwarriors if mw.status == PilotStatus.KIA)
+    company.mechs_lost += len([d for d in mech_damage if d.destroyed])
+    company.pilots_lost += pilots_kia - pilots_kia_before
+
+    # Check if this was the final contract
+    if contract.is_final_contract and outcome == CombatOutcome.VICTORY:
+        company.final_contract_completed = True
 
     # Step 8: Update reputation
     if outcome == CombatOutcome.VICTORY:

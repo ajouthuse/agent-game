@@ -41,19 +41,48 @@ from data.progression import (
     apply_level_up,
     is_pilot_deployable,
 )
+from data.save_system import (
+    autosave_exists,
+    load_game,
+    list_save_files,
+)
 from game.scene import Scene
 
 
 # ── Main Menu Scene ─────────────────────────────────────────────────────────
 
 class MainMenuScene(Scene):
-    """The main menu screen with New Game and Quit options."""
+    """The main menu screen with dynamic options based on save files.
 
-    MENU_OPTIONS = ["New Game", "Quit"]
+    Menu options adapt based on save file availability:
+    - Continue: appears if autosave exists, loads it automatically
+    - New Game: always available
+    - Load Game: appears if any saves exist, allows file selection
+    - Quit: always available
+    """
 
     def __init__(self, game_state):
         super().__init__(game_state)
         self.selected = 0
+        self._build_menu_options()
+
+    def _build_menu_options(self):
+        """Build menu options based on save file availability."""
+        self.menu_options = []
+
+        # Add "Continue" if autosave exists
+        if autosave_exists():
+            self.menu_options.append("Continue")
+
+        # Always add "New Game"
+        self.menu_options.append("New Game")
+
+        # Add "Load Game" if any saves exist
+        if list_save_files():
+            self.menu_options.append("Load Game")
+
+        # Always add "Quit"
+        self.menu_options.append("Quit")
 
     def handle_input(self, key):
         """Navigate menu with arrow keys, select with Enter.
@@ -62,9 +91,9 @@ class MainMenuScene(Scene):
             key: The curses key code.
         """
         if key == curses.KEY_UP:
-            self.selected = (self.selected - 1) % len(self.MENU_OPTIONS)
+            self.selected = (self.selected - 1) % len(self.menu_options)
         elif key == curses.KEY_DOWN:
-            self.selected = (self.selected + 1) % len(self.MENU_OPTIONS)
+            self.selected = (self.selected + 1) % len(self.menu_options)
         elif key in (curses.KEY_ENTER, 10, 13):
             self._select_option()
         elif key in (ord("q"), ord("Q")):
@@ -72,11 +101,27 @@ class MainMenuScene(Scene):
 
     def _select_option(self):
         """Execute the currently highlighted menu option."""
-        choice = self.MENU_OPTIONS[self.selected]
-        if choice == "New Game":
+        choice = self.menu_options[self.selected]
+        if choice == "Continue":
+            self._load_autosave()
+        elif choice == "New Game":
             self.game_state.push_scene(CompanyNameScene(self.game_state))
+        elif choice == "Load Game":
+            self.game_state.push_scene(LoadGameScene(self.game_state))
         elif choice == "Quit":
             self.game_state.running = False
+
+    def _load_autosave(self):
+        """Load the autosave file and proceed to HQ."""
+        company, message = load_game()
+        if company:
+            self.game_state.company = company
+            self.game_state.push_scene(HQScene(self.game_state))
+        else:
+            # Failed to load - show error message
+            # For now, just rebuild menu (autosave might be corrupted)
+            self._build_menu_options()
+            self.selected = 0
 
     def draw(self, win):
         """Render the main menu with title art and selectable options.
@@ -105,7 +150,112 @@ class MainMenuScene(Scene):
 
         # Menu options
         menu_y = subtitle_y + 3
-        ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
+        ui.draw_menu(win, menu_y, self.menu_options, self.selected)
+
+
+# ── Load Game Scene ──────────────────────────────────────────────────────
+
+class LoadGameScene(Scene):
+    """Save file selection screen for loading saved games.
+
+    Displays all available save files with metadata (company name, week, etc.)
+    and allows the player to select one to load.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.save_files = list_save_files()
+        self.selected = 0
+
+    def handle_input(self, key):
+        """Navigate save file list with arrow keys, select with Enter.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == 27:  # Escape - go back to main menu
+            self.game_state.pop_scene()
+        elif key == curses.KEY_UP:
+            if self.save_files:
+                self.selected = (self.selected - 1) % len(self.save_files)
+        elif key == curses.KEY_DOWN:
+            if self.save_files:
+                self.selected = (self.selected + 1) % len(self.save_files)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._load_selected_save()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _load_selected_save(self):
+        """Load the currently selected save file."""
+        if not self.save_files:
+            return
+
+        filename, company_name, saved_at = self.save_files[self.selected]
+        company, message = load_game(filename)
+
+        if company:
+            self.game_state.company = company
+            # Pop load game scene, then push HQ
+            self.game_state.pop_scene()
+            self.game_state.push_scene(HQScene(self.game_state))
+        else:
+            # Failed to load - refresh the list
+            self.save_files = list_save_files()
+            self.selected = 0
+
+    def draw(self, win):
+        """Render the load game screen with save file list.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - LOAD GAME")
+        ui.draw_status_bar(win, "Up/Down: Select | Enter: Load | Esc: Back | Q: Quit")
+
+        row = 3
+
+        ui.draw_centered_text(
+            win, row,
+            "SELECT SAVE FILE",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 2
+
+        if not self.save_files:
+            ui.draw_centered_text(
+                win, row,
+                "No save files found.",
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+            return
+
+        # Draw save file list
+        for i, (filename, company_name, saved_at) in enumerate(self.save_files):
+            if row >= max_h - 3:
+                break
+
+            # Format the save file info
+            date_str = saved_at.strftime("%Y-%m-%d %H:%M")
+            label = f"{company_name} - {filename} ({date_str})"
+
+            if i == self.selected:
+                attr = ui.color_text(ui.COLOR_MENU_ACTIVE) | curses.A_BOLD
+                label = f"  > {label}"
+            else:
+                attr = ui.color_text(ui.COLOR_MENU_INACTIVE)
+                label = f"    {label}"
+
+            try:
+                # Center the text
+                text_x = max(1, (max_w - len(label)) // 2)
+                win.addstr(row, text_x, label[:max_w - 2], attr)
+            except curses.error:
+                pass
+
+            row += 1
 
 
 # ── Company Name Input Scene ───────────────────────────────────────────────

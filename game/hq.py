@@ -277,7 +277,15 @@ class HQScene(Scene):
                 self.game_state.push_scene(
                     WeeklySummaryScene(self.game_state, summary)
                 )
-# Auto-save after week advances            save_game(company)                        # Check victory condition (reputation >= 75 AND c_bills >= 10,000,000)            if company.reputation >= 75 and company.c_bills >= 10_000_000:                from game.scenes import VictoryScene                self.game_state.push_scene(VictoryScene(self.game_state))
+
+            # Auto-save after week advances
+            save_game(company)
+
+            # Check victory condition (reputation >= 75 AND c_bills >= 10,000,000)
+            if company.reputation >= 75 and company.c_bills >= 10_000_000:
+                from game.scenes import VictoryScene
+                self.game_state.push_scene(VictoryScene(self.game_state))
+
     def _confirm_quit(self):
         """Save the game and return to main menu."""
         company = self.game_state.company

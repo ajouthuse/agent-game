@@ -145,8 +145,7 @@ def advance_week(company):
             company.available_contracts = generate_contracts(company.week)
             final_contract = generate_final_contract()
             company.available_contracts.append(final_contract)
-        else:
-            company.available_contracts = generate_contracts(company.week)
+        # else: keep existing contracts including the final contract
     else:
         company.available_contracts = generate_contracts(company.week)
 

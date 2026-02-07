@@ -632,7 +632,6 @@ def resolve_combat(company: Company, contract: Contract) -> MissionResult:
     company.month = ((company.week - 1) // 4) + 1
 
     # Count mechs and pilots lost in this battle
-    mechs_destroyed = sum(1 for m in company.mechs if m.status == MechStatus.DESTROYED)
     pilots_kia = sum(1 for mw in company.mechwarriors if mw.status == PilotStatus.KIA)
     company.mechs_lost += len([d for d in mech_damage if d.destroyed])
     company.pilots_lost += pilots_kia - pilots_kia_before

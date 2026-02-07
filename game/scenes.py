@@ -6,12 +6,15 @@ Provides:
 - CompanyNameScene: Text input screen for naming the mercenary company.
 - RosterSummaryScene: Displays the newly created company roster.
 - HQScene: Headquarters hub with contract market and roster access.
-- RosterScene: Full company roster view.
+- RosterScene: Full company roster view with pilot selection.
+- PilotDetailScene: Detailed view of a single pilot's stats and progression.
+- LevelUpScene: Skill improvement choice screen for leveling up.
 - ContractMarketScene: Contract market with selectable contracts.
 - ContractBriefingScene: Detailed briefing for a selected contract.
 - MissionReportScene: Post-mission combat log and results summary.
 - UpkeepPhaseScene: Monthly upkeep screen for repair decisions.
 - FinancialSummaryScene: End-of-month financial report.
+- DeserterScene: Narrative screen for pilot desertions.
 - GameOverScene: Bankruptcy game over screen.
 """
 
@@ -19,13 +22,24 @@ import curses
 
 import ui
 from data import Company, create_starting_lance, create_starting_pilots
+from data.models import PilotStatus
 from data.contracts import generate_contracts
-from data.combat import resolve_combat
+from data.combat import resolve_combat, CombatOutcome
 from data.finance import (
     calculate_monthly_upkeep,
     apply_upkeep,
     is_bankrupt,
     _recalculate_totals,
+)
+from data.progression import (
+    apply_morale_outcome,
+    check_desertion,
+    generate_desertion_message,
+    recover_injuries,
+    get_pilots_with_pending_levelups,
+    can_level_up,
+    apply_level_up,
+    is_pilot_deployable,
 )
 from game.scene import Scene
 
@@ -373,26 +387,52 @@ class RosterScene(Scene):
     Displays the company's mech bay and pilot roster in a combined
     table view. Shows armor percentage, pilot assignments, and
     damage indicators for non-Ready mechs and non-Active pilots.
+    Players can select a pilot to view their detailed stats.
     """
 
     def __init__(self, game_state):
         super().__init__(game_state)
         self.scroll_offset = 0
+        self.selected_pilot = 0
+        self.mode = "roster"  # "roster" = viewing table, "pilot_select" = pilot list
 
     def handle_input(self, key):
-        """Press Escape to return to HQ.
+        """Navigate roster and select pilots for detail view.
 
         Args:
             key: The curses key code.
         """
+        company = self.game_state.company
+        pilots = [mw for mw in company.mechwarriors if mw.status != PilotStatus.KIA]
+
         if key == 27:  # Escape - return to HQ
-            self.game_state.pop_scene()
-        elif key == curses.KEY_UP:
-            self.scroll_offset = max(0, self.scroll_offset - 1)
-        elif key == curses.KEY_DOWN:
-            self.scroll_offset += 1
-        elif key in (ord("q"), ord("Q")):
-            self.game_state.running = False
+            if self.mode == "pilot_select":
+                self.mode = "roster"
+            else:
+                self.game_state.pop_scene()
+        elif key in (ord("p"), ord("P")):
+            # Toggle pilot selection mode
+            if pilots:
+                self.mode = "pilot_select"
+                self.selected_pilot = 0
+        elif self.mode == "pilot_select":
+            if key == curses.KEY_UP:
+                self.selected_pilot = (self.selected_pilot - 1) % len(pilots)
+            elif key == curses.KEY_DOWN:
+                self.selected_pilot = (self.selected_pilot + 1) % len(pilots)
+            elif key in (curses.KEY_ENTER, 10, 13):
+                if pilots:
+                    pilot = pilots[self.selected_pilot]
+                    self.game_state.push_scene(
+                        PilotDetailScene(self.game_state, pilot)
+                    )
+        else:
+            if key == curses.KEY_UP:
+                self.scroll_offset = max(0, self.scroll_offset - 1)
+            elif key == curses.KEY_DOWN:
+                self.scroll_offset += 1
+            elif key in (ord("q"), ord("Q")):
+                self.game_state.running = False
 
     def draw(self, win):
         """Render the full roster screen.
@@ -404,12 +444,44 @@ class RosterScene(Scene):
         company = self.game_state.company
 
         ui.draw_header_bar(win, "IRON CONTRACT - COMPANY ROSTER")
-        ui.draw_status_bar(win, "Esc: Back to HQ | Q: Quit | Up/Down: Scroll")
+
+        if self.mode == "pilot_select":
+            ui.draw_status_bar(
+                win,
+                "Up/Down: Select Pilot | Enter: View Detail | Esc: Back"
+            )
+        else:
+            ui.draw_status_bar(
+                win,
+                "P: Select Pilot | Esc: Back to HQ | Q: Quit | Up/Down: Scroll"
+            )
 
         start_y = 2 - self.scroll_offset
 
         # Draw the roster tables
-        ui.draw_roster_table(win, start_y + 1, company)
+        end_row = ui.draw_roster_table(win, start_y + 1, company)
+
+        # If in pilot selection mode, show selection overlay
+        if self.mode == "pilot_select":
+            pilots = [mw for mw in company.mechwarriors if mw.status != PilotStatus.KIA]
+            sel_y = max(end_row + 1, 2) if end_row else 2
+            ui.draw_centered_text(
+                win, sel_y,
+                "--- SELECT PILOT ---",
+                ui.color_text(ui.COLOR_BORDER) | curses.A_BOLD,
+            )
+            sel_y += 1
+            for i, mw in enumerate(pilots):
+                if sel_y >= max_h - 2:
+                    break
+                if i == self.selected_pilot:
+                    attr = ui.color_text(ui.COLOR_MENU_ACTIVE) | curses.A_BOLD
+                    label = f'  > {mw.callsign} ({mw.name}) - {mw.status.value}'
+                else:
+                    attr = ui.color_text(ui.COLOR_MENU_INACTIVE)
+                    label = f'    {mw.callsign} ({mw.name}) - {mw.status.value}'
+                ui.draw_centered_text(win, sel_y, label, attr)
+                sel_y += 1
 
 
 # ── Contract Market Scene ─────────────────────────────────────────────────
@@ -630,14 +702,53 @@ class MissionReportScene(Scene):
                 self.game_state.running = False
 
     def _proceed_to_upkeep(self):
-        """Transition from mission report to the monthly upkeep phase."""
+        """Transition from mission report through progression to upkeep.
+
+        Applies morale adjustments based on outcome, checks for desertions,
+        recovers injuries, then proceeds to level-up prompts if any pilots
+        are eligible, and finally to the upkeep phase.
+        """
         company = self.game_state.company
         if company:
+            # Apply standardized morale outcome (in addition to combat system adjustments)
+            apply_morale_outcome(company, self.result.outcome.value)
+
+            # Check for desertions (pilots with 0 morale)
+            deserters = check_desertion(company)
+            desertion_messages = [
+                generate_desertion_message(d) for d in deserters
+            ]
+
+            # Recover injuries from previously injured pilots
+            recovery_messages = recover_injuries(company)
+
+            # Calculate upkeep
             report = calculate_monthly_upkeep(company, self.result.c_bills_earned)
+
             self.game_state.pop_scene()  # Pop mission report
-            self.game_state.push_scene(
-                UpkeepPhaseScene(self.game_state, report)
-            )
+
+            # If there are desertions, show desertion scene first
+            if desertion_messages:
+                self.game_state.push_scene(
+                    DeserterScene(
+                        self.game_state, desertion_messages,
+                        recovery_messages, report,
+                    )
+                )
+            # Otherwise check for level-ups
+            elif get_pilots_with_pending_levelups(company):
+                pilots_to_level = get_pilots_with_pending_levelups(company)
+                self.game_state.push_scene(
+                    LevelUpScene(
+                        self.game_state, pilots_to_level,
+                        recovery_messages, report,
+                    )
+                )
+            else:
+                # Proceed directly to upkeep
+                self.game_state.push_scene(
+                    UpkeepPhaseScene(self.game_state, report, recovery_messages)
+                )
 
     def draw(self, win):
         """Render the mission report screen.
@@ -698,12 +809,14 @@ class UpkeepPhaseScene(Scene):
 
     Displays fixed costs (pilot salaries, mech maintenance) and lets the
     player toggle repair decisions for each damaged mech. When confirmed,
-    transitions to the financial summary screen.
+    transitions to the financial summary screen. Also shows recovery
+    messages for injured pilots.
     """
 
-    def __init__(self, game_state, report):
+    def __init__(self, game_state, report, recovery_messages=None):
         super().__init__(game_state)
         self.report = report
+        self.recovery_messages = recovery_messages or []
         self.selected = 0
         self.scroll_offset = 0
 
@@ -770,6 +883,12 @@ class UpkeepPhaseScene(Scene):
             )
 
         row = 2
+
+        # Show recovery messages if any
+        if self.recovery_messages:
+            row = ui.draw_recovery_messages(win, row, self.recovery_messages)
+            row += 1
+
         ui.draw_upkeep_phase(
             win, row, self.report,
             self.selected, self.scroll_offset,
@@ -843,6 +962,262 @@ class FinancialSummaryScene(Scene):
         ui.draw_financial_summary(
             win, row, self.report, self.scroll_offset,
         )
+
+        # Continue prompt
+        ui.draw_centered_text(
+            win,
+            max_h - 3,
+            "[ Press ENTER to continue ]",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+
+
+# ── Pilot Detail Scene ──────────────────────────────────────────────────
+
+class PilotDetailScene(Scene):
+    """Detailed view of a single pilot's stats and progression.
+
+    Shows the pilot's full stats, XP progress, morale bar, injury
+    status, and assigned mech. If the pilot can level up, allows
+    the player to initiate a level-up.
+    """
+
+    def __init__(self, game_state, pilot):
+        super().__init__(game_state)
+        self.pilot = pilot
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        """Navigate pilot detail and optionally level up.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == 27:  # Escape - go back
+            self.game_state.pop_scene()
+        elif key in (ord("l"), ord("L")):
+            # Level up if available
+            if can_level_up(self.pilot):
+                self.game_state.push_scene(
+                    LevelUpScene(
+                        self.game_state,
+                        [self.pilot],
+                        callback_scene="detail",
+                    )
+                )
+        elif key == curses.KEY_UP:
+            self.scroll_offset = max(0, self.scroll_offset - 1)
+        elif key == curses.KEY_DOWN:
+            self.scroll_offset += 1
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def draw(self, win):
+        """Render the pilot detail screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - PILOT DETAIL")
+
+        hints = "Esc: Back | Up/Down: Scroll"
+        if can_level_up(self.pilot):
+            hints += " | L: Level Up"
+        ui.draw_status_bar(win, hints)
+
+        # Find assigned mech
+        assigned_mech = None
+        if self.pilot.assigned_mech and self.game_state.company:
+            for m in self.game_state.company.mechs:
+                if m.name == self.pilot.assigned_mech:
+                    assigned_mech = m
+                    break
+
+        start_y = 2 - self.scroll_offset
+        ui.draw_pilot_detail(win, start_y, self.pilot, assigned_mech)
+
+
+# ── Level-Up Scene ──────────────────────────────────────────────────────
+
+class LevelUpScene(Scene):
+    """Skill improvement choice screen for pilots with pending level-ups.
+
+    Shows each eligible pilot one at a time, letting the player choose
+    to improve gunnery or piloting. Can be triggered from the mission
+    flow (between missions) or from the pilot detail screen.
+    """
+
+    def __init__(self, game_state, pilots, recovery_messages=None,
+                 report=None, callback_scene=None):
+        """Initialize the level-up scene.
+
+        Args:
+            game_state: The GameState instance.
+            pilots: List of MechWarrior instances eligible for level-up.
+            recovery_messages: Optional recovery messages to pass to upkeep.
+            report: Optional UpkeepReport to pass to upkeep after level-ups.
+            callback_scene: If "detail", pop back to pilot detail when done.
+        """
+        super().__init__(game_state)
+        self.pilots = list(pilots)
+        self.recovery_messages = recovery_messages or []
+        self.report = report
+        self.callback_scene = callback_scene
+        self.current_pilot_index = 0
+        self.selected = 0  # 0 = gunnery, 1 = piloting
+
+    def handle_input(self, key):
+        """Navigate level-up choices.
+
+        Args:
+            key: The curses key code.
+        """
+        pilot = self.pilots[self.current_pilot_index]
+
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % 2
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % 2
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._apply_choice(pilot)
+        elif key == 27:  # Escape - skip this level-up
+            self._next_pilot()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _apply_choice(self, pilot):
+        """Apply the selected skill improvement.
+
+        Args:
+            pilot: The MechWarrior to level up.
+        """
+        if self.selected == 0:
+            skill = "gunnery"
+        else:
+            skill = "piloting"
+
+        success = apply_level_up(pilot, skill)
+        if not success:
+            # Skill already at minimum, try the other one
+            return
+
+        self._next_pilot()
+
+    def _next_pilot(self):
+        """Move to the next pilot or finish level-ups."""
+        self.current_pilot_index += 1
+        self.selected = 0
+
+        if self.current_pilot_index >= len(self.pilots):
+            self._finish()
+
+    def _finish(self):
+        """Complete the level-up phase and proceed."""
+        self.game_state.pop_scene()  # Pop level-up scene
+
+        if self.callback_scene == "detail":
+            # We were called from pilot detail, just go back
+            return
+
+        # We were called from mission flow - proceed to upkeep
+        if self.report:
+            self.game_state.push_scene(
+                UpkeepPhaseScene(
+                    self.game_state, self.report, self.recovery_messages
+                )
+            )
+
+    def draw(self, win):
+        """Render the level-up choice screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - LEVEL UP")
+        ui.draw_status_bar(
+            win,
+            "Up/Down: Choose Skill | Enter: Confirm | Esc: Skip"
+        )
+
+        if self.current_pilot_index < len(self.pilots):
+            pilot = self.pilots[self.current_pilot_index]
+
+            # Progress indicator
+            progress = f"Pilot {self.current_pilot_index + 1} of {len(self.pilots)}"
+            ui.draw_centered_text(
+                win, 2, progress,
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+
+            ui.draw_level_up_choice(win, 4, pilot, self.selected)
+
+
+# ── Deserter Scene ──────────────────────────────────────────────────────
+
+class DeserterScene(Scene):
+    """Narrative screen showing pilot desertions.
+
+    Displays dramatic desertion messages when pilots with 0 morale
+    abandon the company, taking their mech with them. After viewing,
+    proceeds to level-ups (if any) or the upkeep phase.
+    """
+
+    def __init__(self, game_state, desertion_messages, recovery_messages=None,
+                 report=None):
+        super().__init__(game_state)
+        self.desertion_messages = desertion_messages
+        self.recovery_messages = recovery_messages or []
+        self.report = report
+
+    def handle_input(self, key):
+        """Press Enter to proceed.
+
+        Args:
+            key: The curses key code.
+        """
+        if key in (curses.KEY_ENTER, 10, 13, 27):
+            self._proceed()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _proceed(self):
+        """Proceed to level-ups or upkeep after viewing desertions."""
+        company = self.game_state.company
+        self.game_state.pop_scene()  # Pop deserter scene
+
+        # Check for level-ups
+        if company and get_pilots_with_pending_levelups(company):
+            pilots_to_level = get_pilots_with_pending_levelups(company)
+            self.game_state.push_scene(
+                LevelUpScene(
+                    self.game_state, pilots_to_level,
+                    self.recovery_messages, self.report,
+                )
+            )
+        elif self.report:
+            self.game_state.push_scene(
+                UpkeepPhaseScene(
+                    self.game_state, self.report, self.recovery_messages
+                )
+            )
+
+    def draw(self, win):
+        """Render the desertion scene.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, "IRON CONTRACT - DESERTION")
+        ui.draw_status_bar(win, "Press ENTER to continue")
+
+        row = 3
+        row = ui.draw_desertion_events(win, row, self.desertion_messages)
 
         # Continue prompt
         ui.draw_centered_text(

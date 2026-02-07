@@ -12,6 +12,10 @@ Provides composite drawing functions that combine multiple primitives:
 - draw_upkeep_phase(): Upkeep phase screen with repair toggle options.
 - draw_financial_summary(): Financial summary with itemized income/expenses.
 - draw_game_over(): Game over screen for bankruptcy.
+- draw_pilot_detail(): Pilot detail screen with full stats and morale bar.
+- draw_morale_bar(): Visual morale bar with color coding.
+- draw_level_up_choice(): Level-up choice screen for skill improvement.
+- draw_desertion_events(): Narrative desertion messages.
 """
 
 import curses
@@ -20,6 +24,7 @@ from ui.colors import (
     color_text,
     COLOR_ACCENT,
     COLOR_BORDER,
+    COLOR_MENU_ACTIVE,
     COLOR_MENU_INACTIVE,
     COLOR_STATUS,
     COLOR_TITLE,
@@ -27,6 +32,18 @@ from ui.colors import (
 )
 from ui.drawing import draw_centered_text, draw_box
 from data.models import PilotStatus
+from data.progression import (
+    get_pilot_level,
+    can_level_up,
+    get_xp_to_next_level,
+    effective_gunnery,
+    effective_piloting,
+    get_morale_modifier_text,
+    is_pilot_deployable,
+    XP_THRESHOLDS,
+    MORALE_LOW_THRESHOLD,
+    MORALE_HIGH_THRESHOLD,
+)
 
 
 # ── ASCII Art Title ─────────────────────────────────────────────────────────
@@ -1250,3 +1267,453 @@ def _draw_finance_line(win, y, x, label, value, max_width, value_color):
                    color_text(value_color) | curses.A_BOLD)
     except curses.error:
         pass
+
+
+# ── Morale Bar ────────────────────────────────────────────────────────
+
+def draw_morale_bar(win, y, x, width, morale):
+    """Draw a visual morale bar with color coding.
+
+    The bar uses filled and empty blocks to show morale level (0-100).
+    Color coding:
+    - Red: morale < 30 (low, combat penalty)
+    - Yellow: 30 <= morale <= 80 (neutral)
+    - Green: morale > 80 (high, combat bonus)
+
+    Args:
+        win: curses window to draw on.
+        y: Row position.
+        x: Column position.
+        width: Total width of the bar (including brackets).
+        morale: Morale value (0-100).
+
+    Returns:
+        The next x position after the bar.
+    """
+    max_h, max_w = win.getmaxyx()
+    if y < 0 or y >= max_h:
+        return x + width
+
+    inner_width = width - 2  # Subtract brackets
+    filled = int((morale / 100.0) * inner_width)
+    filled = max(0, min(inner_width, filled))
+    empty = inner_width - filled
+
+    # Determine color based on morale thresholds
+    if morale < MORALE_LOW_THRESHOLD:
+        bar_color = color_text(COLOR_WARNING) | curses.A_BOLD
+    elif morale > MORALE_HIGH_THRESHOLD:
+        bar_color = color_text(COLOR_ACCENT) | curses.A_BOLD
+    else:
+        bar_color = color_text(COLOR_TITLE) | curses.A_BOLD
+
+    bar_str = "#" * filled + "-" * empty
+
+    try:
+        win.addstr(y, x, "[", color_text(COLOR_BORDER))
+        win.addstr(y, x + 1, bar_str, bar_color)
+        win.addstr(y, x + 1 + inner_width, "]", color_text(COLOR_BORDER))
+    except curses.error:
+        pass
+
+    return x + width
+
+
+# ── Pilot Detail Display ─────────────────────────────────────────────
+
+def draw_pilot_detail(win, start_y, pilot, assigned_mech=None):
+    """Draw a detailed pilot information screen.
+
+    Shows the pilot's full stats, XP progress, morale bar, injury
+    status, and assigned mech in a clear, formatted layout.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the display.
+        pilot: A MechWarrior instance to display.
+        assigned_mech: Optional BattleMech assigned to this pilot.
+
+    Returns:
+        The next available row after the display.
+    """
+    max_h, max_w = win.getmaxyx()
+
+    content_w = min(60, max_w - 6)
+    content_x = max(2, (max_w - content_w) // 2)
+
+    row = start_y
+
+    # ── Name and Callsign Header ──
+    header_text = f'=== {pilot.name} "{pilot.callsign}" ==='
+    draw_centered_text(
+        win, row, header_text,
+        color_text(COLOR_TITLE) | curses.A_BOLD,
+    )
+    row += 2
+
+    # ── Status ──
+    if pilot.status == PilotStatus.KIA:
+        status_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+    elif pilot.status == PilotStatus.INJURED:
+        status_attr = color_text(COLOR_WARNING)
+    else:
+        status_attr = color_text(COLOR_ACCENT)
+
+    _draw_detail_line(win, row, content_x, "Status:", pilot.status.value, content_w, status_attr)
+    row += 1
+
+    # ── Deployable ──
+    deployable = is_pilot_deployable(pilot)
+    deploy_text = "Yes" if deployable else "No (Injured)"
+    deploy_attr = color_text(COLOR_ACCENT) if deployable else color_text(COLOR_WARNING)
+    _draw_detail_line(win, row, content_x, "Deployable:", deploy_text, content_w, deploy_attr)
+    row += 1
+
+    # ── Injuries ──
+    if pilot.injuries > 0:
+        inj_attr = color_text(COLOR_WARNING)
+    else:
+        inj_attr = color_text(COLOR_ACCENT)
+    _draw_detail_line(win, row, content_x, "Injuries:", str(pilot.injuries), content_w, inj_attr)
+    row += 2
+
+    # ── Skills ──
+    eff_gun = effective_gunnery(pilot)
+    eff_plt = effective_piloting(pilot)
+
+    gun_text = str(pilot.gunnery)
+    if eff_gun != pilot.gunnery:
+        gun_text += f" (eff: {eff_gun})"
+    plt_text = str(pilot.piloting)
+    if eff_plt != pilot.piloting:
+        plt_text += f" (eff: {eff_plt})"
+
+    _draw_detail_line(
+        win, row, content_x, "Gunnery:", gun_text, content_w,
+        color_text(COLOR_TITLE) | curses.A_BOLD,
+    )
+    row += 1
+    _draw_detail_line(
+        win, row, content_x, "Piloting:", plt_text, content_w,
+        color_text(COLOR_TITLE) | curses.A_BOLD,
+    )
+    row += 2
+
+    # ── Morale ──
+    _draw_detail_line(
+        win, row, content_x, "Morale:", f"{pilot.morale}/100", content_w,
+        color_text(COLOR_TITLE),
+    )
+    row += 1
+
+    # Morale bar
+    bar_x = content_x + 2
+    bar_width = min(32, content_w - 4)
+    draw_morale_bar(win, row, bar_x, bar_width, pilot.morale)
+
+    # Morale percentage after bar
+    pct_x = bar_x + bar_width + 1
+    try:
+        win.addstr(row, pct_x, f"{pilot.morale}%",
+                   color_text(COLOR_MENU_INACTIVE))
+    except curses.error:
+        pass
+    row += 1
+
+    # Morale modifier text
+    modifier_text = get_morale_modifier_text(pilot)
+    if modifier_text:
+        if pilot.morale < MORALE_LOW_THRESHOLD:
+            mod_attr = color_text(COLOR_WARNING) | curses.A_BOLD
+        else:
+            mod_attr = color_text(COLOR_ACCENT) | curses.A_BOLD
+        try:
+            win.addstr(row, content_x + 2, modifier_text, mod_attr)
+        except curses.error:
+            pass
+        row += 1
+
+    row += 1
+
+    # ── Experience / Level ──
+    level = get_pilot_level(pilot)
+    _draw_detail_line(
+        win, row, content_x, "Experience:", f"{pilot.experience} XP", content_w,
+        color_text(COLOR_TITLE),
+    )
+    row += 1
+    _draw_detail_line(
+        win, row, content_x, "Level:", str(level), content_w,
+        color_text(COLOR_TITLE),
+    )
+    row += 1
+
+    # XP progress to next level
+    xp_remaining = get_xp_to_next_level(pilot)
+    if xp_remaining is not None:
+        next_threshold = XP_THRESHOLDS[level] if level < len(XP_THRESHOLDS) else 0
+        xp_text = f"{pilot.experience}/{next_threshold} ({xp_remaining} to next)"
+        _draw_detail_line(
+            win, row, content_x, "XP Progress:", xp_text, content_w,
+            color_text(COLOR_ACCENT),
+        )
+    else:
+        _draw_detail_line(
+            win, row, content_x, "XP Progress:", "MAX LEVEL", content_w,
+            color_text(COLOR_ACCENT) | curses.A_BOLD,
+        )
+    row += 1
+
+    # Level-up available indicator
+    if can_level_up(pilot):
+        row += 1
+        draw_centered_text(
+            win, row,
+            "** LEVEL UP AVAILABLE! **",
+            color_text(COLOR_ACCENT) | curses.A_BOLD,
+        )
+        row += 1
+
+    row += 1
+
+    # ── Assigned Mech ──
+    if assigned_mech:
+        _draw_detail_line(
+            win, row, content_x, "Assigned Mech:", assigned_mech.name, content_w,
+            color_text(COLOR_TITLE),
+        )
+        row += 1
+        armor_pct = int((assigned_mech.armor_current / assigned_mech.armor_max) * 100) if assigned_mech.armor_max > 0 else 0
+        mech_info = f"{assigned_mech.weight_class.value} {assigned_mech.tonnage}t | Armor: {armor_pct}% | {assigned_mech.status.value}"
+        try:
+            win.addstr(row, content_x + 2, mech_info[:content_w - 4],
+                       color_text(COLOR_MENU_INACTIVE))
+        except curses.error:
+            pass
+        row += 1
+    elif pilot.assigned_mech:
+        _draw_detail_line(
+            win, row, content_x, "Assigned Mech:", pilot.assigned_mech, content_w,
+            color_text(COLOR_TITLE),
+        )
+        row += 1
+    else:
+        _draw_detail_line(
+            win, row, content_x, "Assigned Mech:", "--- (Unassigned)", content_w,
+            color_text(COLOR_WARNING),
+        )
+        row += 1
+
+    return row
+
+
+def _draw_detail_line(win, y, x, label, value, max_width, value_attr):
+    """Draw a label: value line in the pilot detail screen.
+
+    Args:
+        win: curses window to draw on.
+        y: Row position.
+        x: Column position.
+        label: The label text.
+        value: The value text.
+        max_width: Maximum available width.
+        value_attr: curses attribute for the value text.
+    """
+    max_h, max_w = win.getmaxyx()
+    if y < 0 or y >= max_h:
+        return
+
+    try:
+        win.addstr(y, x, label, color_text(COLOR_BORDER) | curses.A_BOLD)
+        value_x = x + len(label) + 1
+        remaining_w = max_width - len(label) - 1
+        if remaining_w > 0:
+            win.addstr(y, value_x, value[:remaining_w], value_attr)
+    except curses.error:
+        pass
+
+
+# ── Level-Up Choice Display ──────────────────────────────────────────
+
+def draw_level_up_choice(win, start_y, pilot, selected_index):
+    """Draw the level-up choice screen for a pilot.
+
+    Shows the pilot's current skills and lets the player choose to
+    improve either gunnery or piloting (whichever is above minimum).
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the display.
+        pilot: A MechWarrior instance eligible for level-up.
+        selected_index: Index of the highlighted choice (0=gunnery, 1=piloting).
+
+    Returns:
+        The next available row after the display.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y
+
+    # Title
+    title_text = f'LEVEL UP - "{pilot.callsign}" ({pilot.name})'
+    draw_centered_text(
+        win, row, title_text,
+        color_text(COLOR_TITLE) | curses.A_BOLD,
+    )
+    row += 2
+
+    level = get_pilot_level(pilot)
+    draw_centered_text(
+        win, row,
+        f"Level {level} | XP: {pilot.experience}",
+        color_text(COLOR_ACCENT),
+    )
+    row += 2
+
+    draw_centered_text(
+        win, row,
+        "Choose a skill to improve:",
+        color_text(COLOR_MENU_INACTIVE),
+    )
+    row += 2
+
+    # Options
+    content_w = min(50, max_w - 6)
+    content_x = max(2, (max_w - content_w) // 2)
+
+    options = []
+    if pilot.gunnery > 1:
+        options.append(("gunnery", f"Gunnery: {pilot.gunnery} -> {pilot.gunnery - 1}"))
+    else:
+        options.append(("gunnery_max", f"Gunnery: {pilot.gunnery} (MAX - cannot improve)"))
+
+    if pilot.piloting > 1:
+        options.append(("piloting", f"Piloting: {pilot.piloting} -> {pilot.piloting - 1}"))
+    else:
+        options.append(("piloting_max", f"Piloting: {pilot.piloting} (MAX - cannot improve)"))
+
+    for i, (key, text) in enumerate(options):
+        is_maxed = key.endswith("_max")
+
+        if i == selected_index and not is_maxed:
+            indicator = ">"
+            attr = color_text(COLOR_MENU_ACTIVE) | curses.A_BOLD
+        elif i == selected_index and is_maxed:
+            indicator = ">"
+            attr = color_text(COLOR_WARNING)
+        elif is_maxed:
+            indicator = " "
+            attr = color_text(COLOR_WARNING)
+        else:
+            indicator = " "
+            attr = color_text(COLOR_MENU_INACTIVE)
+
+        line = f" {indicator}  {text}"
+        if 0 <= row < max_h - 1:
+            try:
+                win.addstr(row, content_x, line[:content_w], attr)
+            except curses.error:
+                pass
+        row += 1
+
+    row += 2
+
+    # Hint text
+    draw_centered_text(
+        win, row,
+        "Lower is better! (1 = elite, 6 = green)",
+        color_text(COLOR_MENU_INACTIVE),
+    )
+    row += 1
+
+    return row
+
+
+# ── Desertion Events Display ─────────────────────────────────────────
+
+def draw_desertion_events(win, start_y, messages):
+    """Draw narrative desertion event messages.
+
+    Shows each desertion message in a dramatic format with warning colors.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the display.
+        messages: List of desertion message strings.
+
+    Returns:
+        The next available row after the display.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y
+
+    if not messages:
+        return row
+
+    draw_centered_text(
+        win, row,
+        "=== DESERTION ===",
+        color_text(COLOR_WARNING) | curses.A_BOLD,
+    )
+    row += 2
+
+    content_w = min(70, max_w - 6)
+    content_x = max(2, (max_w - content_w) // 2)
+
+    for msg in messages:
+        wrapped = _wrap_text(msg, content_w)
+        for line in wrapped:
+            if 0 <= row < max_h - 1:
+                try:
+                    win.addstr(row, content_x, line[:content_w],
+                               color_text(COLOR_WARNING))
+                except curses.error:
+                    pass
+            row += 1
+        row += 1
+
+    return row
+
+
+# ── Recovery Messages Display ────────────────────────────────────────
+
+def draw_recovery_messages(win, start_y, messages):
+    """Draw pilot recovery messages.
+
+    Shows recovery status messages for injured pilots.
+
+    Args:
+        win: curses window to draw on.
+        start_y: Starting row for the display.
+        messages: List of recovery message strings.
+
+    Returns:
+        The next available row after the display.
+    """
+    max_h, max_w = win.getmaxyx()
+    row = start_y
+
+    if not messages:
+        return row
+
+    draw_centered_text(
+        win, row,
+        "--- PILOT RECOVERY ---",
+        color_text(COLOR_ACCENT) | curses.A_BOLD,
+    )
+    row += 1
+
+    content_w = min(70, max_w - 6)
+    content_x = max(2, (max_w - content_w) // 2)
+
+    for msg in messages:
+        wrapped = _wrap_text(msg, content_w)
+        for line in wrapped:
+            if 0 <= row < max_h - 1:
+                try:
+                    win.addstr(row, content_x, line[:content_w],
+                               color_text(COLOR_ACCENT))
+                except curses.error:
+                    pass
+            row += 1
+
+    return row

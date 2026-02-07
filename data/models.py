@@ -125,6 +125,7 @@ class MechWarrior:
         morale: Pilot morale level (0-100, higher is better).
         injuries: Number of current injuries.
         experience: Accumulated experience points.
+        levelups_spent: Number of level-up skill improvements already applied.
         status: Current health/operational status.
         assigned_mech: Name of the assigned BattleMech, or None.
     """
@@ -136,6 +137,7 @@ class MechWarrior:
     morale: int = 75
     injuries: int = 0
     experience: int = 0
+    levelups_spent: int = 0
     status: PilotStatus = PilotStatus.ACTIVE
     assigned_mech: Optional[str] = None
 
@@ -149,6 +151,7 @@ class MechWarrior:
             "morale": self.morale,
             "injuries": self.injuries,
             "experience": self.experience,
+            "levelups_spent": self.levelups_spent,
             "status": self.status.value,
             "assigned_mech": self.assigned_mech,
         }
@@ -164,6 +167,7 @@ class MechWarrior:
             morale=d.get("morale", 75),
             injuries=d.get("injuries", 0),
             experience=d.get("experience", 0),
+            levelups_spent=d.get("levelups_spent", 0),
             status=PilotStatus(d["status"]),
             assigned_mech=d.get("assigned_mech"),
         )

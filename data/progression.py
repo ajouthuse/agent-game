@@ -89,50 +89,18 @@ def get_pilot_level(pilot: MechWarrior) -> int:
 def get_available_levelups(pilot: MechWarrior) -> int:
     """Calculate how many unspent level-ups a pilot has.
 
-    The number of level-ups is the pilot's level minus the number of
-    skill improvements already spent. Skill improvements are tracked as
-    the difference from starting skills (which default to values in the
-    3-5 range for starting pilots; each improvement reduces a skill by 1).
-
-    For simplicity, the total number of improvements spent is stored
-    implicitly: level - spent = available.
-    We track spent improvements by counting how much skills have improved
-    from initial values, but since we don't store initial values, we use
-    total_levels - total_improvements approach instead.
-
-    We calculate total improvements spent as:
-    The pilot's level represents max potential improvements.
-    Since skills start at gunnery/piloting values at creation and can only
-    go down, we need a different approach. We'll track available level-ups
-    using a simple formula: level - improvements_applied.
-
-    Since we need to track this without adding a new field, we compute it
-    from the pilot's data. But that's not reliable without knowing initial
-    skills. Instead, we'll use the 'pending_levelups' approach where
-    the level determines max potential improvements and we check if the
-    pilot has enough XP for the next threshold beyond their applied levels.
-
-    Actually, the simplest approach: a pilot can level up when their XP
-    crosses a threshold they haven't "spent" yet. We track this by adding
-    a simple convention: each level-up is one skill point. After leveling,
-    the pilot's XP stays the same but their skill is improved. The number
-    of available level-ups = level - total_skill_improvements.
-
-    Since we don't have the original skill values stored, we'll use a
-    pragmatic approach: count how many thresholds the pilot has crossed
-    and compare to a 'levels_spent' count stored externally.
-
-    For the simplest implementation without modifying the MechWarrior
-    dataclass, we'll check if the pilot's XP has crossed the NEXT
-    threshold for their number of applied level-ups.
+    The number of available level-ups is the pilot's level (based on XP
+    thresholds crossed) minus the number of level-ups already spent.
+    Spent level-ups are tracked via the ``levelups_spent`` field on
+    ``MechWarrior``.
 
     Args:
         pilot: The MechWarrior to check.
 
     Returns:
-        Number of available (unspent) level-ups.
+        Number of available (unspent) level-ups (>= 0).
     """
-    return get_pilot_level(pilot)
+    return max(0, get_pilot_level(pilot) - pilot.levelups_spent)
 
 
 def can_level_up(pilot: MechWarrior) -> bool:
@@ -140,7 +108,7 @@ def can_level_up(pilot: MechWarrior) -> bool:
 
     A pilot can level up if:
     - They are not KIA.
-    - Their XP has crossed the next threshold.
+    - They have at least one unspent level-up available.
     - At least one of their skills can still be improved (min 1).
 
     Args:
@@ -152,8 +120,7 @@ def can_level_up(pilot: MechWarrior) -> bool:
     if pilot.status == PilotStatus.KIA:
         return False
 
-    level = get_pilot_level(pilot)
-    if level <= 0:
+    if get_available_levelups(pilot) <= 0:
         return False
 
     # Check if any skill can still be improved
@@ -164,7 +131,8 @@ def apply_level_up(pilot: MechWarrior, skill: str) -> bool:
     """Apply a level-up to the specified skill.
 
     Reduces the chosen skill by 1 (lower is better in BattleTech).
-    The skill cannot go below MIN_SKILL (1).
+    The skill cannot go below MIN_SKILL (1).  On success, increments
+    ``pilot.levelups_spent`` so the spent level-up is tracked.
 
     Args:
         pilot: The MechWarrior to level up (modified in place).
@@ -177,11 +145,13 @@ def apply_level_up(pilot: MechWarrior, skill: str) -> bool:
         if pilot.gunnery <= MIN_SKILL:
             return False
         pilot.gunnery -= 1
+        pilot.levelups_spent += 1
         return True
     elif skill == "piloting":
         if pilot.piloting <= MIN_SKILL:
             return False
         pilot.piloting -= 1
+        pilot.levelups_spent += 1
         return True
     return False
 

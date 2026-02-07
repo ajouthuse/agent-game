@@ -179,6 +179,72 @@ class TestXPAndLeveling(unittest.TestCase):
         result = apply_level_up(pilot, "cooking")
         self.assertFalse(result)
 
+    def test_apply_level_up_increments_levelups_spent(self):
+        """Applying a level-up increments the levelups_spent counter."""
+        pilot = self._make_pilot(experience=100, gunnery=4, piloting=4)
+        self.assertEqual(pilot.levelups_spent, 0)
+        apply_level_up(pilot, "gunnery")
+        self.assertEqual(pilot.levelups_spent, 1)
+        self.assertEqual(pilot.gunnery, 3)
+
+    def test_apply_level_up_failed_does_not_increment(self):
+        """Failed level-up does not increment levelups_spent."""
+        pilot = self._make_pilot(experience=100, gunnery=1)
+        apply_level_up(pilot, "gunnery")
+        self.assertEqual(pilot.levelups_spent, 0)
+
+    def test_available_levelups_decreases_after_spend(self):
+        """get_available_levelups decreases after spending a level-up."""
+        pilot = self._make_pilot(experience=300, gunnery=4, piloting=4)
+        self.assertEqual(get_available_levelups(pilot), 2)
+        apply_level_up(pilot, "gunnery")
+        self.assertEqual(get_available_levelups(pilot), 1)
+        apply_level_up(pilot, "piloting")
+        self.assertEqual(get_available_levelups(pilot), 0)
+
+    def test_can_level_up_false_after_all_spent(self):
+        """can_level_up returns False once all earned level-ups are spent."""
+        pilot = self._make_pilot(experience=300, gunnery=4, piloting=4)
+        # Level 2 → 2 level-ups available
+        self.assertTrue(can_level_up(pilot))
+        apply_level_up(pilot, "gunnery")
+        self.assertTrue(can_level_up(pilot))
+        apply_level_up(pilot, "piloting")
+        # Both level-ups spent
+        self.assertFalse(can_level_up(pilot))
+
+    def test_reviewer_repro_case(self):
+        """Reproduce the exact reviewer bug report scenario.
+
+        Pilot at 300 XP (level 2) should get exactly 2 level-ups, not
+        unlimited level-ups.
+        """
+        pilot = self._make_pilot(experience=300, gunnery=4, piloting=4)
+        apply_level_up(pilot, "gunnery")   # First levelup - OK
+        apply_level_up(pilot, "piloting")  # Second levelup - OK
+        self.assertFalse(can_level_up(pilot))  # Must be False now
+
+    def test_new_xp_threshold_unlocks_more_levelups(self):
+        """Gaining XP past a new threshold grants new level-ups."""
+        pilot = self._make_pilot(experience=100, gunnery=4, piloting=4)
+        # Level 1, spend the one level-up
+        apply_level_up(pilot, "gunnery")
+        self.assertFalse(can_level_up(pilot))
+        # Now gain more XP to reach level 2
+        pilot.experience = 300
+        self.assertTrue(can_level_up(pilot))
+        self.assertEqual(get_available_levelups(pilot), 1)
+
+    def test_levelups_spent_persisted_via_field(self):
+        """levelups_spent field defaults to 0 and tracks correctly."""
+        pilot = self._make_pilot(experience=600, gunnery=4, piloting=4)
+        self.assertEqual(pilot.levelups_spent, 0)
+        self.assertEqual(get_available_levelups(pilot), 3)
+        apply_level_up(pilot, "gunnery")
+        apply_level_up(pilot, "piloting")
+        self.assertEqual(pilot.levelups_spent, 2)
+        self.assertEqual(get_available_levelups(pilot), 1)
+
     def test_min_skill_is_one(self):
         """MIN_SKILL constant is 1."""
         self.assertEqual(MIN_SKILL, 1)
@@ -588,6 +654,14 @@ class TestPendingLevelUps(unittest.TestCase):
     def test_maxed_skills_excluded(self):
         """Pilots with max skills are excluded."""
         pilot = self._make_pilot(experience=500, gunnery=1, piloting=1)
+        company = Company(name="Test", mechwarriors=[pilot], mechs=[])
+        result = get_pilots_with_pending_levelups(company)
+        self.assertEqual(len(result), 0)
+
+    def test_all_levelups_spent_excluded(self):
+        """Pilots who have spent all level-ups are excluded."""
+        pilot = self._make_pilot(experience=100, gunnery=4, piloting=4)
+        apply_level_up(pilot, "gunnery")  # Spend the 1 level-up
         company = Company(name="Test", mechwarriors=[pilot], mechs=[])
         result = get_pilots_with_pending_levelups(company)
         self.assertEqual(len(result), 0)

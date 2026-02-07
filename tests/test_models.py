@@ -225,6 +225,7 @@ class TestMechWarrior(unittest.TestCase):
         self.assertEqual(d["morale"], 75)
         self.assertEqual(d["injuries"], 0)
         self.assertEqual(d["experience"], 0)
+        self.assertEqual(d["levelups_spent"], 0)
         self.assertEqual(d["status"], "Active")
         self.assertEqual(d["assigned_mech"], "Atlas AS7-D")
 
@@ -271,6 +272,7 @@ class TestMechWarrior(unittest.TestCase):
         self.assertEqual(pilot.morale, 75)
         self.assertEqual(pilot.injuries, 0)
         self.assertEqual(pilot.experience, 0)
+        self.assertEqual(pilot.levelups_spent, 0)
         self.assertIsNone(pilot.assigned_mech)
 
     def test_round_trip(self):

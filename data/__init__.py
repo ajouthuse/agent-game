@@ -50,6 +50,24 @@ from data.combat import (
     calculate_rewards,
     resolve_combat,
 )
+from data.finance import (
+    PILOT_BASE_SALARY,
+    PILOT_SKILL_BONUS,
+    MECH_MAINTENANCE_BASE,
+    REPAIR_COST_PER_ARMOR,
+    REPAIR_COST_PER_STRUCTURE,
+    PilotSalaryLine,
+    MechMaintenanceLine,
+    RepairLine,
+    UpkeepReport,
+    calculate_pilot_salary,
+    calculate_mech_maintenance,
+    calculate_repair_cost,
+    repair_mech,
+    calculate_monthly_upkeep,
+    apply_upkeep,
+    is_bankrupt,
+)
 
 __all__ = [
     # Models
@@ -88,4 +106,21 @@ __all__ = [
     "apply_damage",
     "calculate_rewards",
     "resolve_combat",
+    # Finance
+    "PILOT_BASE_SALARY",
+    "PILOT_SKILL_BONUS",
+    "MECH_MAINTENANCE_BASE",
+    "REPAIR_COST_PER_ARMOR",
+    "REPAIR_COST_PER_STRUCTURE",
+    "PilotSalaryLine",
+    "MechMaintenanceLine",
+    "RepairLine",
+    "UpkeepReport",
+    "calculate_pilot_salary",
+    "calculate_mech_maintenance",
+    "calculate_repair_cost",
+    "repair_mech",
+    "calculate_monthly_upkeep",
+    "apply_upkeep",
+    "is_bankrupt",
 ]

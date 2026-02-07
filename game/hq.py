@@ -114,6 +114,32 @@ def get_status_text(company):
 
     Shows active contract status, damaged mechs, injured pilots, etc.
 
+    # 3. Progress active contract timer and check for battle
+    battle_contract = None
+    if company.active_contract:
+        company.active_contract.weeks_remaining -= 1
+        if company.active_contract.weeks_remaining <= 0:
+            # Contract duration elapsed - battle time!
+            battle_contract = company.active_contract
+            summary["status_changes"].append(
+                f"Contract with {company.active_contract.employer} ready for deployment!"
+            )
+            # Don't clear active_contract here - battle will do that
+
+    # 4. Regenerate available contracts each week
+    company.available_contracts = generate_contracts(company.week)
+
+    # 5. Update week counter (only if no battle - battle will do this)
+    if not battle_contract:
+        company.week += 1
+    summary["week_after"] = company.week
+    summary["balance_after"] = company.c_bills
+    summary["battle_contract"] = battle_contract
+
+    return summary
+
+
+
     Args:
         company: The player's Company instance.
 
@@ -223,10 +249,22 @@ class HQScene(Scene):
         company = self.game_state.company
         if company:
             summary = advance_week(company)
-            self.game_state.push_scene(
-                WeeklySummaryScene(self.game_state, summary)
-            )
-
+            
+            # Check if battle should trigger
+            if summary.get("battle_contract"):
+                from game.scenes import BattleDeploymentScene
+                from data.battle import generate_enemy_lance
+                
+                contract = summary["battle_contract"]
+                enemies = generate_enemy_lance(contract.difficulty)
+                self.game_state.push_scene(
+                    BattleDeploymentScene(self.game_state, contract, enemies)
+                )
+            else:
+                # Normal week summary
+                self.game_state.push_scene(
+                    WeeklySummaryScene(self.game_state, summary)
+                )
     def _confirm_quit(self):
         """Show a quit confirmation prompt."""
         self.game_state.push_scene(QuitConfirmScene(self.game_state))

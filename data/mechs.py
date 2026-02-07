@@ -45,6 +45,15 @@ MECH_TEMPLATES = {
         "firepower": 5,
         "speed": 9,
     },
+    "Panther PNT-9R": {
+        "name": "Panther PNT-9R",
+        "weight_class": WeightClass.LIGHT,
+        "tonnage": 35,
+        "armor_max": 88,
+        "structure_max": 30,
+        "firepower": 4,
+        "speed": 7,
+    },
 
     # Medium Mechs (40-55 tons)
     "Wolverine WVR-6R": {
@@ -83,6 +92,15 @@ MECH_TEMPLATES = {
         "firepower": 6,
         "speed": 5,
     },
+    "Griffin GRF-1N": {
+        "name": "Griffin GRF-1N",
+        "weight_class": WeightClass.MEDIUM,
+        "tonnage": 55,
+        "armor_max": 120,
+        "structure_max": 48,
+        "firepower": 6,
+        "speed": 6,
+    },
 
     # Heavy Mechs (60-75 tons)
     "Thunderbolt TDR-5S": {
@@ -100,6 +118,24 @@ MECH_TEMPLATES = {
         "tonnage": 65,
         "armor_max": 152,
         "structure_max": 56,
+        "firepower": 8,
+        "speed": 4,
+    },
+    "Marauder MAD-3R": {
+        "name": "Marauder MAD-3R",
+        "weight_class": WeightClass.HEAVY,
+        "tonnage": 75,
+        "armor_max": 200,
+        "structure_max": 64,
+        "firepower": 8,
+        "speed": 4,
+    },
+    "Warhammer WHM-6R": {
+        "name": "Warhammer WHM-6R",
+        "weight_class": WeightClass.HEAVY,
+        "tonnage": 70,
+        "armor_max": 192,
+        "structure_max": 60,
         "firepower": 8,
         "speed": 4,
     },
@@ -122,6 +158,15 @@ MECH_TEMPLATES = {
         "structure_max": 68,
         "firepower": 9,
         "speed": 3,
+    },
+    "King Crab KGC-0000": {
+        "name": "King Crab KGC-0000",
+        "weight_class": WeightClass.ASSAULT,
+        "tonnage": 100,
+        "armor_max": 296,
+        "structure_max": 80,
+        "firepower": 9,
+        "speed": 2,
     },
 }
 

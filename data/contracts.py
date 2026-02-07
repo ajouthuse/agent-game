@@ -11,18 +11,12 @@ import random
 from typing import List
 
 from data.models import Contract, MissionType
+from data.factions import FACTIONS, get_preferred_contracts
 
 
 # ── Employer Factions ────────────────────────────────────────────────────
 
-EMPLOYERS = [
-    "House Davion",
-    "House Steiner",
-    "House Liao",
-    "House Marik",
-    "House Kurita",
-    "ComStar",
-]
+EMPLOYERS = list(FACTIONS.keys())
 
 
 # ── Contract Templates ───────────────────────────────────────────────────
@@ -291,11 +285,22 @@ def generate_contracts(month: int, count: int = 3) -> List[Contract]:
     contracts = []
     used_employers = []
     for tmpl in selected_templates:
-        # Pick a unique employer if possible
+        # Pick a unique employer if possible, weighted by their preference for this mission type
         available_employers = [e for e in EMPLOYERS if e not in used_employers]
         if not available_employers:
             available_employers = EMPLOYERS
-        employer = random.choice(available_employers)
+
+        # Weight employers by their preference for this mission type
+        mission_type = tmpl["mission_type"]
+        employer_weights = []
+        for emp in available_employers:
+            preferred = get_preferred_contracts(emp)
+            # If this mission type is preferred, give it 3x weight
+            weight = 3 if mission_type in preferred else 1
+            employer_weights.append(weight)
+
+        # Use weighted random choice
+        employer = random.choices(available_employers, weights=employer_weights, k=1)[0]
         used_employers.append(employer)
 
         # Scale the contract

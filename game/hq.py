@@ -23,6 +23,7 @@ from data.finance import (
     is_bankrupt,
 )
 from game.scene import Scene
+from data.save_system import save_game
 
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -276,9 +277,23 @@ class HQScene(Scene):
                 self.game_state.push_scene(
                     WeeklySummaryScene(self.game_state, summary)
                 )
+
+            # Auto-save after week advances
+            save_game(company)
+
+            # Check victory condition (reputation >= 75 AND c_bills >= 10,000,000)
+            if company.reputation >= 75 and company.c_bills >= 10_000_000:
+                from game.scenes import VictoryScene
+                self.game_state.push_scene(VictoryScene(self.game_state))
+
     def _confirm_quit(self):
-        """Show a quit confirmation prompt."""
-        self.game_state.push_scene(QuitConfirmScene(self.game_state))
+        """Save the game and return to main menu."""
+        company = self.game_state.company
+        if company:
+            save_game(company)
+        # Pop back to main menu (clear all scenes)
+        while self.game_state.current_scene:
+            self.game_state.pop_scene()
 
     def draw(self, win):
         """Render the HQ dashboard matching the issue's layout spec.

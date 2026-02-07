@@ -87,33 +87,6 @@ def advance_week(company):
                 f"{mech.name}: Repair in progress (still damaged)"
             )
 
-    # 3. Progress active contract timer
-    if company.active_contract:
-        company.active_contract.weeks_remaining -= 1
-        if company.active_contract.weeks_remaining <= 0:
-            summary["status_changes"].append(
-                f"Contract with {company.active_contract.employer} completed!"
-            )
-            company.active_contract = None
-
-    # 4. Regenerate available contracts each week
-    company.available_contracts = generate_contracts(company.week)
-
-    # 5. Update week counter
-    company.week += 1
-    summary["week_after"] = company.week
-    summary["balance_after"] = company.c_bills
-
-    return summary
-
-
-# ── Status Bar Helper ────────────────────────────────────────────────────
-
-def get_status_text(company):
-    """Generate contextual status text for the HQ status bar.
-
-    Shows active contract status, damaged mechs, injured pilots, etc.
-
     # 3. Progress active contract timer and check for battle
     battle_contract = None
     if company.active_contract:
@@ -139,6 +112,12 @@ def get_status_text(company):
     return summary
 
 
+# ── Status Bar Helper ────────────────────────────────────────────────────
+
+def get_status_text(company):
+    """Generate contextual status text for the HQ status bar.
+
+    Shows active contract status, damaged mechs, injured pilots, etc.
 
     Args:
         company: The player's Company instance.

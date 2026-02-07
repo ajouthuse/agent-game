@@ -11,6 +11,8 @@ Provides:
 - LevelUpScene: Skill improvement choice screen for leveling up.
 - ContractMarketScene: Contract market with selectable contracts.
 - ContractBriefingScene: Detailed briefing for a selected contract.
+- SalvageMarketScene: Mech salvage market for purchasing replacement mechs.
+- HiringHallScene: Hiring hall for recruiting new pilots.
 - MissionReportScene: Post-mission combat log and results summary.
 - UpkeepPhaseScene: Monthly upkeep screen for repair decisions.
 - FinancialSummaryScene: End-of-month financial report.
@@ -25,6 +27,14 @@ from data import Company, create_starting_lance, create_starting_pilots
 from data.models import PilotStatus, MechStatus
 from data.contracts import generate_contracts
 from data.combat import resolve_combat, CombatOutcome
+from data.market import (
+    generate_salvage_market,
+    generate_hiring_hall,
+    can_buy_mech,
+    can_hire_pilot,
+    buy_mech,
+    hire_pilot,
+)
 from data.finance import (
     calculate_monthly_upkeep,
     apply_upkeep,
@@ -741,6 +751,287 @@ class ContractBriefingScene(Scene):
         # Draw the accept/go back menu
         menu_y = min(row + 1, max_h - 5)
         ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected)
+
+
+# ── Salvage Market Scene ────────────────────────────────────────────────
+
+class SalvageMarketScene(Scene):
+    """Salvage market screen showing mechs available for purchase.
+
+    Generates 2-3 random mechs each turn from the mech catalog and
+    displays them in a navigable list. The player can purchase a mech
+    if they have enough C-Bills and an open lance slot (max 4 mechs).
+    Shows a confirmation prompt before purchase.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.selected = 0
+        self.items = generate_salvage_market()
+        self.message = ""
+        self.confirm_mode = False
+
+    def handle_input(self, key):
+        """Navigate the salvage list and purchase mechs.
+
+        Args:
+            key: The curses key code.
+        """
+        if self.confirm_mode:
+            if key in (ord("y"), ord("Y")):
+                self._execute_purchase()
+                self.confirm_mode = False
+            elif key in (ord("n"), ord("N"), 27):
+                self.confirm_mode = False
+                self.message = "Purchase cancelled."
+            return
+
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % len(self.items)
+            self.message = ""
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % len(self.items)
+            self.message = ""
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._attempt_purchase()
+        elif key == 27:  # Escape - return to HQ
+            self.game_state.pop_scene()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _attempt_purchase(self):
+        """Check if purchase is possible and prompt for confirmation."""
+        if not self.items:
+            return
+        company = self.game_state.company
+        item = self.items[self.selected]
+        can, reason = can_buy_mech(company, item.price)
+        if not can:
+            self.message = reason
+        else:
+            self.confirm_mode = True
+            self.message = (
+                f"Buy {item.mech.name} for {item.price:,} CB? (Y/N)"
+            )
+
+    def _execute_purchase(self):
+        """Execute the mech purchase."""
+        company = self.game_state.company
+        item = self.items[self.selected]
+        success = buy_mech(company, item)
+        if success:
+            mech_name = item.mech.name
+            self.items.pop(self.selected)
+            if self.selected >= len(self.items) and self.items:
+                self.selected = len(self.items) - 1
+            self.message = f"{mech_name} purchased and added to lance!"
+        else:
+            self.message = "Purchase failed."
+
+    def draw(self, win):
+        """Render the salvage market screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - SALVAGE MARKET")
+        if self.confirm_mode:
+            ui.draw_status_bar(win, "Y: Confirm Purchase | N: Cancel")
+        else:
+            ui.draw_status_bar(
+                win,
+                "Up/Down: Browse | Enter: Buy | Esc: Back to HQ"
+            )
+
+        row = 2
+
+        # Title
+        ui.draw_centered_text(
+            win, row,
+            "MECH SALVAGE MARKET",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 1
+
+        if company:
+            info_str = (
+                f"C-Bills: {company.c_bills:,} | "
+                f"Lance: {len(company.mechs)}/4"
+            )
+            ui.draw_centered_text(
+                win, row, info_str,
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+        row += 2
+
+        # Draw the salvage list
+        if self.items:
+            row = ui.draw_salvage_list(win, row, self.items, self.selected)
+        else:
+            ui.draw_centered_text(
+                win, row,
+                "No mechs available for purchase.",
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+            row += 1
+
+        row += 1
+
+        # Message (confirmation prompt, error, or success)
+        if self.message:
+            if self.confirm_mode:
+                msg_attr = ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD
+            elif "purchased" in self.message.lower():
+                msg_attr = ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD
+            else:
+                msg_attr = ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD
+            ui.draw_centered_text(win, row, self.message, msg_attr)
+
+
+# ── Hiring Hall Scene ──────────────────────────────────────────────────
+
+class HiringHallScene(Scene):
+    """Hiring hall screen showing pilots available for hire.
+
+    Generates 2-3 random pilots each turn with varied skills and a
+    hiring bonus cost. The player can hire a pilot if they have enough
+    C-Bills and an open pilot slot (max 4 pilots).
+    Shows a confirmation prompt before hiring.
+    """
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.selected = 0
+        self.available = generate_hiring_hall()
+        self.message = ""
+        self.confirm_mode = False
+
+    def handle_input(self, key):
+        """Navigate the hiring list and hire pilots.
+
+        Args:
+            key: The curses key code.
+        """
+        if self.confirm_mode:
+            if key in (ord("y"), ord("Y")):
+                self._execute_hire()
+                self.confirm_mode = False
+            elif key in (ord("n"), ord("N"), 27):
+                self.confirm_mode = False
+                self.message = "Hiring cancelled."
+            return
+
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % max(1, len(self.available))
+            self.message = ""
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % max(1, len(self.available))
+            self.message = ""
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._attempt_hire()
+        elif key == 27:  # Escape - return to HQ
+            self.game_state.pop_scene()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _attempt_hire(self):
+        """Check if hire is possible and prompt for confirmation."""
+        if not self.available:
+            return
+        company = self.game_state.company
+        hireable = self.available[self.selected]
+        can, reason = can_hire_pilot(company, hireable.hiring_cost)
+        if not can:
+            self.message = reason
+        else:
+            self.confirm_mode = True
+            self.message = (
+                f'Hire "{hireable.pilot.callsign}" '
+                f"({hireable.pilot.name}) for {hireable.hiring_cost:,} CB? (Y/N)"
+            )
+
+    def _execute_hire(self):
+        """Execute the pilot hire."""
+        company = self.game_state.company
+        hireable = self.available[self.selected]
+        success = hire_pilot(company, hireable)
+        if success:
+            callsign = hireable.pilot.callsign
+            self.available.pop(self.selected)
+            if self.selected >= len(self.available) and self.available:
+                self.selected = len(self.available) - 1
+            self.message = f'"{callsign}" hired and added to roster!'
+        else:
+            self.message = "Hiring failed."
+
+    def draw(self, win):
+        """Render the hiring hall screen.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - HIRING HALL")
+        if self.confirm_mode:
+            ui.draw_status_bar(win, "Y: Confirm Hire | N: Cancel")
+        else:
+            ui.draw_status_bar(
+                win,
+                "Up/Down: Browse | Enter: Hire | Esc: Back to HQ"
+            )
+
+        row = 2
+
+        # Title
+        ui.draw_centered_text(
+            win, row,
+            "MECHWARRIOR HIRING HALL",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 1
+
+        if company:
+            active_pilots = [
+                mw for mw in company.mechwarriors
+                if mw.status.value != "KIA"
+            ]
+            info_str = (
+                f"C-Bills: {company.c_bills:,} | "
+                f"Pilots: {len(active_pilots)}/4"
+            )
+            ui.draw_centered_text(
+                win, row, info_str,
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+        row += 2
+
+        # Draw the hiring list
+        if self.available:
+            row = ui.draw_hiring_list(win, row, self.available, self.selected)
+        else:
+            ui.draw_centered_text(
+                win, row,
+                "No pilots available for hire.",
+                ui.color_text(ui.COLOR_MENU_INACTIVE),
+            )
+            row += 1
+
+        row += 1
+
+        # Message (confirmation prompt, error, or success)
+        if self.message:
+            if self.confirm_mode:
+                msg_attr = ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD
+            elif "hired" in self.message.lower():
+                msg_attr = ui.color_text(ui.COLOR_ACCENT) | curses.A_BOLD
+            else:
+                msg_attr = ui.color_text(ui.COLOR_WARNING) | curses.A_BOLD
+            ui.draw_centered_text(win, row, self.message, msg_attr)
 
 
 # ── Mission Report Scene ─────────────────────────────────────────────────

@@ -238,6 +238,8 @@ class HQScene(Scene):
         """Handle letter-key navigation at HQ.
 
         C - Contracts (find new work)
+        V - Salvage (buy mechs)
+        H - Hiring Hall (recruit pilots)
         R - Roster (manage MechWarriors)
         M - Mech Bay (view and repair mechs)
         S - Stats (view campaign statistics)
@@ -249,6 +251,10 @@ class HQScene(Scene):
         """
         if key in (ord("c"), ord("C")):
             self._go_contracts()
+        elif key in (ord("v"), ord("V")):
+            self._go_salvage_market()
+        elif key in (ord("h"), ord("H")):
+            self._go_hiring_hall()
         elif key in (ord("r"), ord("R")):
             self._go_roster()
         elif key in (ord("m"), ord("M")):
@@ -264,6 +270,16 @@ class HQScene(Scene):
         """Navigate to the contract market."""
         from game.scenes import ContractMarketScene
         self.game_state.push_scene(ContractMarketScene(self.game_state))
+
+    def _go_salvage_market(self):
+        """Navigate to the salvage market for purchasing mechs."""
+        from game.scenes import SalvageMarketScene
+        self.game_state.push_scene(SalvageMarketScene(self.game_state))
+
+    def _go_hiring_hall(self):
+        """Navigate to the hiring hall for recruiting pilots."""
+        from game.scenes import HiringHallScene
+        self.game_state.push_scene(HiringHallScene(self.game_state))
 
     def _go_roster(self):
         """Navigate to the roster management screen."""
@@ -407,6 +423,8 @@ class HQScene(Scene):
         # Menu options with letter-key highlighting
         menu_items = [
             ("C", "Contracts", "Find new work"),
+            ("V", "Salvage", "Buy mechs"),
+            ("H", "Hiring Hall", "Recruit pilots"),
             ("R", "Roster", "Manage MechWarriors"),
             ("M", "Mech Bay", "View and repair mechs"),
             ("S", "Stats", "View campaign statistics"),

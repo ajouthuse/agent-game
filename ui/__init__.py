@@ -45,6 +45,8 @@ from ui.widgets import (
     draw_level_up_choice,
     draw_desertion_events,
     draw_recovery_messages,
+    draw_salvage_list,
+    draw_hiring_list,
     TITLE_ART,
 )
 
@@ -82,5 +84,7 @@ __all__ = [
     "draw_level_up_choice",
     "draw_desertion_events",
     "draw_recovery_messages",
+    "draw_salvage_list",
+    "draw_hiring_list",
     "TITLE_ART",
 ]

@@ -40,6 +40,11 @@ from ui.widgets import (
     draw_upkeep_phase,
     draw_financial_summary,
     draw_game_over,
+    draw_morale_bar,
+    draw_pilot_detail,
+    draw_level_up_choice,
+    draw_desertion_events,
+    draw_recovery_messages,
     TITLE_ART,
 )
 
@@ -72,5 +77,10 @@ __all__ = [
     "draw_upkeep_phase",
     "draw_financial_summary",
     "draw_game_over",
+    "draw_morale_bar",
+    "draw_pilot_detail",
+    "draw_level_up_choice",
+    "draw_desertion_events",
+    "draw_recovery_messages",
     "TITLE_ART",
 ]

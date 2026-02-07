@@ -143,12 +143,12 @@ def advance_week(company):
         has_final = any(c.is_final_contract for c in company.available_contracts)
         if not has_final:
             # Add final contract to the market
-            company.available_contracts = generate_contracts(company.week)
+            company.available_contracts = generate_contracts(company.month)
             final_contract = generate_final_contract()
             company.available_contracts.append(final_contract)
         # else: keep existing contracts including the final contract
     else:
-        company.available_contracts = generate_contracts(company.week)
+        company.available_contracts = generate_contracts(company.month)
 
     # 6. Check for random events (30% chance)
     random_event = get_random_event()

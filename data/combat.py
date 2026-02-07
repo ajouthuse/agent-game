@@ -640,7 +640,10 @@ def resolve_combat(company: Company, contract: Contract) -> MissionResult:
     if contract.is_final_contract and outcome == CombatOutcome.VICTORY:
         company.final_contract_completed = True
 
-    # Step 8: Update reputation
+    # Step 8: Clear the completed contract
+    company.active_contract = None
+
+    # Step 9: Update reputation
     if outcome == CombatOutcome.VICTORY:
         company.reputation = min(100, company.reputation + random.randint(2, 5))
     elif outcome == CombatOutcome.PYRRHIC_VICTORY:

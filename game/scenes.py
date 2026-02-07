@@ -1266,3 +1266,202 @@ def _create_new_company(name):
         mechwarriors=pilots,
         mechs=mechs,
     )
+
+
+# ── Battle Deployment Scene ─────────────────────────────────────────────
+
+class BattleDeploymentScene(Scene):
+    """Pre-battle deployment screen showing lance lineup vs enemy force."""
+
+    def __init__(self, game_state, contract, enemy_mechs):
+        super().__init__(game_state)
+        self.contract = contract
+        self.enemy_mechs = enemy_mechs
+
+    def handle_input(self, key):
+        if key in (curses.KEY_ENTER, 10, 13):
+            self._begin_battle()
+        elif key in (ord("q"), ord("Q")):
+            self.game_state.running = False
+
+    def _begin_battle(self):
+        from data.battle import simulate_battle
+        result = simulate_battle(self.game_state.company, self.contract)
+        self.game_state.pop_scene()
+        self.game_state.push_scene(
+            BattleSimulationScene(self.game_state, result, self.contract)
+        )
+
+    def draw(self, win):
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        ui.draw_header_bar(win, "IRON CONTRACT - DEPLOYMENT")
+        ui.draw_status_bar(win, "Enter: Begin Mission | Q: Quit")
+
+        row = 2
+        ui.draw_centered_text(
+            win, row,
+            f"═══ {self.contract.mission_type.value.upper()} ═══",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+        row += 1
+        ui.draw_centered_text(
+            win, row,
+            f"Employer: {self.contract.employer} | Difficulty: {self.contract.skulls_display()}",
+            ui.color_text(ui.COLOR_MENU_INACTIVE),
+        )
+        row += 2
+
+        ui.draw_centered_text(
+            win, row, "YOUR LANCE",
+            ui.color_text(ui.COLOR_SUCCESS) | curses.A_BOLD,
+        )
+        row += 1
+
+        pilot_by_mech = {
+            mw.assigned_mech: mw for mw in company.mechwarriors
+            if mw.assigned_mech and mw.status != PilotStatus.KIA
+        }
+
+        deployed_count = 0
+        for mech in company.mechs:
+            if mech.status != MechStatus.DESTROYED:
+                pilot = pilot_by_mech.get(mech.name)
+                if pilot:
+                    deployed_count += 1
+                    armor_pct = int(100 * mech.armor_current / mech.armor_max) if mech.armor_max > 0 else 0
+                    line = f'  [{deployed_count}] {mech.name} | Pilot: "{pilot.callsign}" | Armor: {armor_pct}%'
+                    ui.draw_centered_text(win, row, line, ui.color_text(ui.COLOR_TEXT))
+                    row += 1
+
+        row += 1
+        ui.draw_centered_text(
+            win, row, "ENEMY FORCE (ESTIMATED)",
+            ui.color_text(ui.COLOR_DANGER) | curses.A_BOLD,
+        )
+        row += 1
+
+        for i, enemy in enumerate(self.enemy_mechs, 1):
+            line = f"  [{i}] {enemy.name} | {enemy.weight_class.value} | Threat Level: {enemy.firepower}"
+            ui.draw_centered_text(win, row, line, ui.color_text(ui.COLOR_TEXT))
+            row += 1
+
+        row += 2
+        ui.draw_centered_text(
+            win, row, "[ Press ENTER to engage ]",
+            ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+        )
+
+
+# ── Battle Simulation Scene ──────────────────────────────────────────────
+
+class BattleSimulationScene(Scene):
+    """Auto-battle simulation with scrolling combat log."""
+
+    def __init__(self, game_state, battle_result, contract):
+        super().__init__(game_state)
+        self.result = battle_result
+        self.contract = contract
+        self.visible_events = 1
+        self.all_revealed = False
+        self.scroll_offset = 0
+
+    def handle_input(self, key):
+        if key == -1:
+            return
+
+        if not self.all_revealed:
+            self.visible_events += 1
+            if self.visible_events >= len(self.result.combat_log):
+                self.all_revealed = True
+        else:
+            if key in (curses.KEY_ENTER, 10, 13, 27):
+                self._proceed_to_report()
+            elif key == curses.KEY_UP:
+                self.scroll_offset = max(0, self.scroll_offset - 1)
+            elif key == curses.KEY_DOWN:
+                self.scroll_offset += 1
+            elif key in (ord("q"), ord("Q")):
+                self.game_state.running = False
+
+    def _proceed_to_report(self):
+        from data.progression import (
+            apply_morale_outcome, check_desertion, generate_desertion_message,
+            recover_injuries, get_pilots_with_pending_levelups,
+        )
+        from data.finance import calculate_monthly_upkeep
+
+        company = self.game_state.company
+        company.active_contract = None
+
+        apply_morale_outcome(company, self.result.outcome.value)
+        deserters = check_desertion(company)
+        desertion_messages = [generate_desertion_message(d) for d in deserters]
+        recovery_messages = recover_injuries(company)
+        report = calculate_monthly_upkeep(company, self.result.c_bills_earned)
+
+        self.game_state.pop_scene()
+
+        if desertion_messages:
+            self.game_state.push_scene(
+                DeserterScene(self.game_state, desertion_messages, recovery_messages, report)
+            )
+        elif get_pilots_with_pending_levelups(company):
+            pilots_to_level = get_pilots_with_pending_levelups(company)
+            self.game_state.push_scene(
+                LevelUpScene(self.game_state, pilots_to_level, recovery_messages, report)
+            )
+        else:
+            self.game_state.push_scene(
+                UpkeepPhaseScene(self.game_state, report, recovery_messages)
+            )
+
+    def draw(self, win):
+        max_h, max_w = win.getmaxyx()
+
+        ui.draw_header_bar(win, f"IRON CONTRACT - {self.result.outcome.value.upper()}")
+
+        if self.all_revealed:
+            ui.draw_status_bar(win, "Enter: Continue | Up/Down: Scroll | Q: Quit")
+        else:
+            ui.draw_status_bar(win, "Press any key to continue...")
+
+        row = 2
+        log_area_height = max_h - 8
+        visible_log = self.result.combat_log[:self.visible_events]
+        start_idx = max(0, min(self.scroll_offset, len(visible_log) - log_area_height))
+        display_log = visible_log[start_idx:start_idx + log_area_height]
+
+        for line in display_log:
+            if row >= max_h - 4:
+                break
+
+            color = ui.color_text(ui.COLOR_TEXT)
+            if "DESTROYED" in line or "KIA" in line:
+                color = ui.color_text(ui.COLOR_DANGER) | curses.A_BOLD
+            elif "VICTORY" in line:
+                color = ui.color_text(ui.COLOR_SUCCESS) | curses.A_BOLD
+            elif "DEFEAT" in line:
+                color = ui.color_text(ui.COLOR_DANGER) | curses.A_BOLD
+            elif line.startswith("---") or line.startswith("═"):
+                color = ui.color_text(ui.COLOR_MENU_INACTIVE) | curses.A_BOLD
+
+            try:
+                win.addstr(row, 2, line[:max_w - 4], color)
+            except curses.error:
+                pass
+            row += 1
+
+        if not self.all_revealed:
+            progress = f"[{self.visible_events}/{len(self.result.combat_log)}]"
+            try:
+                win.addstr(max_h - 3, max_w - len(progress) - 2, progress, ui.color_text(ui.COLOR_MENU_INACTIVE))
+            except curses.error:
+                pass
+
+        if self.all_revealed:
+            ui.draw_centered_text(
+                win, max_h - 3, "[ Press ENTER to continue ]",
+                ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
+            )

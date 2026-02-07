@@ -610,7 +610,7 @@ class ContractMarketScene(Scene):
         row += 1
 
         if company:
-            month_str = f"Month {company.week} | C-Bills: {company.c_bills:,}"
+            month_str = f"Month {company.month} | C-Bills: {company.c_bills:,}"
             ui.draw_centered_text(
                 win, row, month_str,
                 ui.color_text(ui.COLOR_MENU_INACTIVE),
@@ -1629,9 +1629,9 @@ class BattleSimulationScene(Scene):
 
 class VictoryScene(Scene):
     """Victory screen displayed when the player wins the campaign.
-    
-    Victory conditions: Reputation >= 75 AND C-Bills >= 10,000,000
-    
+
+    Victory condition: Successfully complete the final contract after month 12
+
     Shows campaign statistics:
     - Weeks played
     - Contracts completed

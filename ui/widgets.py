@@ -1222,7 +1222,7 @@ def draw_game_over(win, start_y, company):
     if company:
         stats = [
             ("Company:", company.name),
-            ("Months Survived:", str(company.week - 1)),
+            ("Months Survived:", str(company.month)),
             ("Contracts Completed:", str(company.contracts_completed)),
             ("Final Reputation:", f"{company.reputation}/100"),
             ("Final Balance:", f"{company.c_bills:,} CB"),

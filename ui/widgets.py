@@ -368,7 +368,7 @@ def draw_contract_list(win, start_y, contracts, selected_index):
     """Draw a list of available contracts in the contract market.
 
     Shows each contract as a row with mission type, employer, difficulty
-    (skull rating), and payout. The selected contract is highlighted.
+    (skull rating), duration, and payout. The selected contract is highlighted.
 
     Args:
         win: curses window to draw on.
@@ -382,9 +382,9 @@ def draw_contract_list(win, start_y, contracts, selected_index):
     max_h, max_w = win.getmaxyx()
     row = start_y
 
-    # Column layout: Type, Employer, Difficulty, Payout, Salvage
-    col_widths = [16, 16, 9, 12, 9]
-    headers = ["MISSION", "EMPLOYER", "DIFF", "PAYOUT", "SALVAGE"]
+    # Column layout: Type, Employer, Difficulty, Duration, Payout, Salvage
+    col_widths = [16, 16, 9, 6, 12, 9]
+    headers = ["MISSION", "EMPLOYER", "DIFF", "WEEKS", "PAYOUT", "SALVAGE"]
     table_width = sum(col_widths) + len(col_widths) - 1
     table_x = max(1, (max_w - table_width) // 2)
 
@@ -406,6 +406,7 @@ def draw_contract_list(win, start_y, contracts, selected_index):
 
     for i, contract in enumerate(contracts):
         skulls = contract.skulls_display()
+        duration_str = f"{contract.duration}w"
         payout_str = f"{contract.payout:,} CB"
         salvage_str = f"{contract.salvage_rights}%"
 
@@ -413,6 +414,7 @@ def draw_contract_list(win, start_y, contracts, selected_index):
             contract.mission_type.value,
             contract.employer,
             skulls,
+            duration_str,
             payout_str,
             salvage_str,
         ]
@@ -459,13 +461,13 @@ def draw_contract_briefing(win, start_y, contract):
     inner_w = box_w - 4
 
     # Calculate box height based on content
-    # We need: title, blank, type, employer, diff, payout, salvage,
+    # We need: title, blank, type, employer, diff, duration, payout, salvage,
     #          blank, description (wrapped), blank, bonus, blank
     desc_lines = _wrap_text(contract.description, inner_w)
     bonus_lines = _wrap_text(
         f"BONUS: {contract.bonus_objective}", inner_w
     )
-    box_h = 10 + len(desc_lines) + len(bonus_lines)
+    box_h = 11 + len(desc_lines) + len(bonus_lines)
 
     if start_y + box_h >= max_h:
         box_h = max_h - start_y - 1
@@ -485,6 +487,10 @@ def draw_contract_briefing(win, start_y, contract):
     # Stats
     skulls = contract.skulls_display()
     _draw_briefing_line(win, row, inner_x, "Difficulty:", skulls, inner_w)
+    row += 1
+
+    duration_str = f"{contract.duration} week{'s' if contract.duration != 1 else ''}"
+    _draw_briefing_line(win, row, inner_x, "Duration:", duration_str, inner_w)
     row += 1
 
     payout_str = f"{contract.payout:,} C-Bills"

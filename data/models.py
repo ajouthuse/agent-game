@@ -187,6 +187,8 @@ class Company:
         contracts_completed: Total number of contracts completed.
         mechwarriors: Roster of hired MechWarriors.
         mechs: List of owned BattleMechs in the mech bay.
+        active_contract: Currently active contract, or None.
+        available_contracts: List of available contracts on the market.
     """
 
     name: str
@@ -196,6 +198,8 @@ class Company:
     contracts_completed: int = 0
     mechwarriors: List[MechWarrior] = field(default_factory=list)
     mechs: List[BattleMech] = field(default_factory=list)
+    active_contract: Optional["Contract"] = None
+    available_contracts: List["Contract"] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Serialize to a plain dictionary."""
@@ -207,6 +211,8 @@ class Company:
             "contracts_completed": self.contracts_completed,
             "mechwarriors": [mw.to_dict() for mw in self.mechwarriors],
             "mechs": [m.to_dict() for m in self.mechs],
+            "active_contract": self.active_contract.to_dict() if self.active_contract else None,
+            "available_contracts": [c.to_dict() for c in self.available_contracts],
         }
 
     @classmethod
@@ -220,6 +226,8 @@ class Company:
             contracts_completed=d.get("contracts_completed", 0),
             mechwarriors=[MechWarrior.from_dict(mw) for mw in d["mechwarriors"]],
             mechs=[BattleMech.from_dict(m) for m in d["mechs"]],
+            active_contract=Contract.from_dict(d["active_contract"]) if d.get("active_contract") else None,
+            available_contracts=[Contract.from_dict(c) for c in d.get("available_contracts", [])],
         )
 
 
@@ -237,6 +245,8 @@ class Contract:
         salvage_rights: Percentage of battlefield salvage the company keeps (0-100).
         bonus_objective: Optional bonus objective description.
         description: Flavor text describing the mission briefing.
+        duration: Contract duration in weeks (1-3).
+        weeks_remaining: Countdown timer for active contracts (initialized from duration).
     """
 
     employer: str
@@ -246,6 +256,8 @@ class Contract:
     salvage_rights: int
     bonus_objective: str
     description: str
+    duration: int = 2
+    weeks_remaining: int = 0
 
     def skulls_display(self) -> str:
         """Return a visual skull rating string like '[***--]'."""
@@ -263,6 +275,8 @@ class Contract:
             "salvage_rights": self.salvage_rights,
             "bonus_objective": self.bonus_objective,
             "description": self.description,
+            "duration": self.duration,
+            "weeks_remaining": self.weeks_remaining,
         }
 
     @classmethod
@@ -276,4 +290,6 @@ class Contract:
             salvage_rights=d["salvage_rights"],
             bonus_objective=d["bonus_objective"],
             description=d["description"],
+            duration=d.get("duration", 2),
+            weeks_remaining=d.get("weeks_remaining", 0),
         )

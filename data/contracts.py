@@ -301,6 +301,9 @@ def generate_contracts(month: int, count: int = 3) -> List[Contract]:
         # Scale the contract
         scaled = _scale_contract(tmpl, month)
 
+        # Generate duration (1-3 weeks)
+        duration = random.randint(1, 3)
+
         contract = Contract(
             employer=employer,
             mission_type=scaled["mission_type"],
@@ -309,6 +312,8 @@ def generate_contracts(month: int, count: int = 3) -> List[Contract]:
             salvage_rights=scaled["salvage_rights"],
             bonus_objective=scaled["bonus_objective"],
             description=scaled["description"],
+            duration=duration,
+            weeks_remaining=0,
         )
         contracts.append(contract)
 

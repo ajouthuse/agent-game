@@ -298,17 +298,47 @@ def simulate_battle(company: Company, contract: Contract) -> BattleResult:
     salvage_value = state.enemy_losses * 10_000
     company.c_bills += salvage_value
 
-    # Update damaged mechs
+    # Update damaged mechs and count losses
+    mechs_destroyed = 0
     for pilot, mech in state.player_mechs:
-        if mech.status != MechStatus.DESTROYED:
-            if mech.armor_current < mech.armor_max or mech.structure_current < mech.structure_max:
-                mech.status = MechStatus.DAMAGED
+        if mech.status == MechStatus.DESTROYED:
+            mechs_destroyed += 1
+        elif mech.armor_current < mech.armor_max or mech.structure_current < mech.structure_max:
+            mech.status = MechStatus.DAMAGED
 
-    # Advance company week
+    # Count pilots lost in this battle
+    pilots_kia = sum(1 for mw in company.mechwarriors if mw.status == PilotStatus.KIA)
+    pilots_kia_before = len(state.player_mechs) - sum(
+        1 for p, m in state.player_mechs
+        if p.status == PilotStatus.KIA
+    )
+    # Simpler: count KIA among our deployed pilots
+    deployed_kia = sum(1 for p, m in state.player_mechs if p.status == PilotStatus.KIA)
+
+    # Update company tracking
+    company.contracts_completed += 1
+    company.total_earnings += c_bills_earned + salvage_value
+    company.mechs_lost += mechs_destroyed
+    company.pilots_lost += deployed_kia
+
+    # Advance company week and month
     company.week += 1
+    company.month = ((company.week - 1) // 4) + 1
 
     # Clear active contract
     company.active_contract = None
+
+    # Update reputation based on outcome
+    if outcome == BattleOutcome.VICTORY:
+        company.reputation = min(100, company.reputation + random.randint(2, 5))
+    elif outcome == BattleOutcome.PYRRHIC_VICTORY:
+        company.reputation = min(100, company.reputation + random.randint(0, 2))
+    else:
+        company.reputation = max(0, company.reputation - random.randint(1, 3))
+
+    # Check if this was the final contract
+    if contract.is_final_contract and outcome == BattleOutcome.VICTORY:
+        company.final_contract_completed = True
 
     state.combat_log.append("")
     state.combat_log.append(f"Battle Complete: {outcome.value}")

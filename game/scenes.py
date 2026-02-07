@@ -26,7 +26,6 @@ import ui
 from data import Company, create_starting_lance, create_starting_pilots
 from data.models import PilotStatus, MechStatus
 from data.contracts import generate_contracts
-from data.combat import resolve_combat, CombatOutcome
 from data.market import (
     generate_salvage_market,
     generate_hiring_hall,
@@ -569,7 +568,7 @@ class ContractMarketScene(Scene):
 
         # Generate contracts if none exist (first time visiting)
         if company and not company.available_contracts:
-            company.available_contracts = generate_contracts(company.week)
+            company.available_contracts = generate_contracts(company.month)
 
         self.contracts = company.available_contracts if company else []
 
@@ -691,8 +690,9 @@ class ContractBriefingScene(Scene):
         """Accept the contract and set it as active.
 
         If a contract is already active, shows an error message.
-        Otherwise, sets the contract as active and initializes its duration countdown.
-        Then resolves combat and displays the mission report.
+        Otherwise, sets the contract as active and initializes its duration
+        countdown. The battle will trigger when advance_week() counts the
+        timer down to zero.
         """
         company = self.game_state.company
         if not company:
@@ -700,25 +700,19 @@ class ContractBriefingScene(Scene):
 
         # Check if a contract is already active
         if company.active_contract:
-            # Cannot accept - show error (for now, just ignore)
-            # In a real implementation, we'd show a message to the user
             return
 
-        # Set this contract as active
+        # Set this contract as active with its duration countdown
         self.contract.weeks_remaining = self.contract.duration
         company.active_contract = self.contract
 
-        # Resolve combat (modifies company in place)
-        result = resolve_combat(company, self.contract)
+        # Remove accepted contract from the available list
+        if self.contract in company.available_contracts:
+            company.available_contracts.remove(self.contract)
 
-        # Pop briefing and market scenes
+        # Pop briefing and market scenes, returning to HQ
         self.game_state.pop_scene()  # Pop briefing
         self.game_state.pop_scene()  # Pop market
-
-        # Push mission report scene
-        self.game_state.push_scene(
-            MissionReportScene(self.game_state, result, self.contract)
-        )
 
     def draw(self, win):
         """Render the contract briefing screen.
@@ -1842,7 +1836,13 @@ class BattleSimulationScene(Scene):
         from data.finance import calculate_monthly_upkeep
 
         company = self.game_state.company
-        company.active_contract = None
+
+        # Check if this was the final contract and it was won
+        if self.contract.is_final_contract and company.final_contract_completed:
+            self.game_state.pop_scene()  # Pop battle simulation
+            from game.hq import VictoryScene
+            self.game_state.push_scene(VictoryScene(self.game_state))
+            return
 
         apply_morale_outcome(company, self.result.outcome.value)
         deserters = check_desertion(company)

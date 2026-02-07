@@ -22,7 +22,7 @@ import curses
 
 import ui
 from data import Company, create_starting_lance, create_starting_pilots
-from data.models import PilotStatus
+from data.models import PilotStatus, MechStatus
 from data.contracts import generate_contracts
 from data.combat import resolve_combat, CombatOutcome
 from data.finance import (
@@ -1465,3 +1465,150 @@ class BattleSimulationScene(Scene):
                 win, max_h - 3, "[ Press ENTER to continue ]",
                 ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD,
             )
+
+
+# ── Victory Scene ──────────────────────────────────────────────────────────
+
+class VictoryScene(Scene):
+    """Victory screen displayed when the player wins the campaign.
+    
+    Victory conditions: Reputation >= 75 AND C-Bills >= 10,000,000
+    
+    Shows campaign statistics:
+    - Weeks played
+    - Contracts completed
+    - Mechs lost (destroyed)
+    - MechWarriors KIA
+    - Peak C-Bills (current amount)
+    - Final reputation
+    
+    Options: Continue playing or Return to main menu
+    """
+
+    MENU_OPTIONS = ["Continue Playing", "Return to Main Menu"]
+
+    def __init__(self, game_state):
+        super().__init__(game_state)
+        self.selected = 0
+
+    def handle_input(self, key):
+        """Navigate menu with arrow keys, select with Enter.
+
+        Args:
+            key: The curses key code.
+        """
+        if key == curses.KEY_UP:
+            self.selected = (self.selected - 1) % len(self.MENU_OPTIONS)
+        elif key == curses.KEY_DOWN:
+            self.selected = (self.selected + 1) % len(self.MENU_OPTIONS)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            self._select_option()
+
+    def _select_option(self):
+        """Execute the currently highlighted menu option."""
+        choice = self.MENU_OPTIONS[self.selected]
+        if choice == "Continue Playing":
+            # Just pop this scene to return to HQ
+            self.game_state.pop_scene()
+        elif choice == "Return to Main Menu":
+            # Pop all scenes to return to main menu
+            while self.game_state.current_scene:
+                self.game_state.pop_scene()
+
+    def draw(self, win):
+        """Render the victory screen with campaign statistics.
+
+        Args:
+            win: The curses standard screen window.
+        """
+        max_h, max_w = win.getmaxyx()
+        company = self.game_state.company
+
+        # Draw layout
+        ui.draw_header_bar(win, "IRON CONTRACT - VICTORY!")
+        ui.draw_status_bar(win, "Congratulations, Commander!")
+
+        if not company:
+            return
+
+        # Calculate statistics
+        mechs_lost = sum(1 for m in company.mechs if m.status == MechStatus.DESTROYED)
+        pilots_kia = sum(1 for mw in company.mechwarriors if mw.status == PilotStatus.KIA)
+
+        # Victory box
+        box_w = min(70, max_w - 4)
+        box_h = 22
+        box_x = (max_w - box_w) // 2
+        box_y = max(2, (max_h - box_h) // 2 - 2)
+
+        ui.draw_box(win, box_y, box_x, box_h, box_w, title="Campaign Victory")
+
+        inner_x = box_x + 2
+        inner_w = box_w - 4
+        row = box_y + 2
+
+        # Victory message
+        title_attr = ui.color_text(ui.COLOR_TITLE) | curses.A_BOLD
+        success_attr = ui.color_text(ui.COLOR_SUCCESS) | curses.A_BOLD
+        
+        victory_msg = "MISSION ACCOMPLISHED!"
+        try:
+            msg_x = inner_x + (inner_w - len(victory_msg)) // 2
+            win.addstr(row, msg_x, victory_msg, success_attr)
+        except curses.error:
+            pass
+        row += 2
+
+        # Congratulatory text
+        congrats_lines = [
+            f"Commander, {company.name} has achieved legendary status!",
+            "",
+            "With a reputation of 75+ and over 10 million C-Bills in the bank,",
+            "you have established yourself as one of the most successful",
+            "mercenary units in the Inner Sphere. Your company is now wealthy",
+            "enough to establish a permanent base of operations.",
+        ]
+
+        for line in congrats_lines:
+            try:
+                if line:
+                    win.addstr(row, inner_x, line[:inner_w], ui.color_text(ui.COLOR_TEXT))
+                row += 1
+            except curses.error:
+                pass
+
+        row += 1
+
+        # Campaign Statistics
+        try:
+            stats_title = "CAMPAIGN STATISTICS"
+            title_x = inner_x + (inner_w - len(stats_title)) // 2
+            win.addstr(row, title_x, stats_title, title_attr)
+        except curses.error:
+            pass
+        row += 2
+
+        stats = [
+            f"Weeks Played:        {company.week}",
+            f"Contracts Completed: {company.contracts_completed}",
+            f"Mechs Lost:          {mechs_lost}",
+            f"MechWarriors KIA:    {pilots_kia}",
+            f"Peak C-Bills:        {company.c_bills:,}",
+            f"Final Reputation:    {company.reputation}",
+        ]
+
+        for stat in stats:
+            try:
+                win.addstr(row, inner_x + 4, stat, ui.color_text(ui.COLOR_ACCENT))
+                row += 1
+            except curses.error:
+                pass
+
+        row += 2
+
+        # Menu options
+        try:
+            menu_y = row
+            ui.draw_menu(win, menu_y, self.MENU_OPTIONS, self.selected, center_x=inner_x + inner_w // 2)
+        except curses.error:
+            pass
